@@ -268,6 +268,12 @@ function render(state) {
   restoreScroll(spot);
 }
 
+// Эксклюзивный дроп без канала в сети и в нужной игре выбрать нельзя: минуты там не идут.
+function isLocked(drop) {
+  const channels = drop?.channels || [];
+  return channels.length > 0 && !channels.some((channel) => channel?.online === true);
+}
+
 function watchChoice(queue, drop) {
   const liveLogin = (item) => {
     const channel = (item?.channels || []).find((entry) => entry?.online === true);
@@ -287,6 +293,7 @@ function watchChoice(queue, drop) {
 
 function dropCard(drop, state, showCampaignArt) {
   const live = state.watching && (drop.id === state.watching.dropId || drop.name === state.watching.name);
+  const locked = !live && isLocked(drop);
   const minutes = drop.current || 0;
   const ratio = drop.required ? Math.min(100, Math.round((minutes / drop.required) * 100)) : 0;
   const reward = rewardUrl(drop);
@@ -304,7 +311,7 @@ function dropCard(drop, state, showCampaignArt) {
     return `<button class="person ${cls}" type="button" data-open="${escapeHtml(login)}"><i></i>${escapeHtml(login)} <em>${word}</em></button>`;
   }).join("");
   return `
-    <article class="drop${live ? " is-current" : ""}${arts.length ? "" : " no-art"}" data-drop="${escapeHtml(drop.id)}">
+    <article class="drop${live ? " is-current" : ""}${locked ? " is-locked" : ""}${arts.length ? "" : " no-art"}" data-drop="${escapeHtml(drop.id)}">
       ${arts.length ? `<span class="arts">${arts.join("")}</span>` : ""}
       <strong>${escapeHtml(drop.name)}</strong>
       <span class="pct">${ratio}%</span>
@@ -386,6 +393,7 @@ document.body.addEventListener("click", (event) => {
   const row = event.target.closest("[data-drop]");
   if (!row?.dataset.drop || !latest) return;
   const drop = (latest.queue || []).find((item) => item.id === row.dataset.drop);
+  if (drop && isLocked(drop)) return;
   if (drop) {
     const picked = watchChoice(latest.queue, drop);
     render({
