@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "Drops"
+  },
+  "extDescription": {
+    "message": "Farms Twitch drops for the games you pick, without playing video. Uses Twitch progress and claims finished drops."
+  }
+}

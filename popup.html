@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Drops</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p id="account" class="whoami"></p>
+      <h1 id="title">Drops</h1>
+    </div>
+    <div class="langs" id="langs">
+      <button type="button" data-lang="ru">RU</button>
+      <button type="button" data-lang="en">EN</button>
+    </div>
+    <button id="toggle" class="switch" type="button" aria-pressed="false" aria-label="Miner">
+      <span class="knob"></span>
+    </button>
+  </header>
+
+  <section id="watch" class="hero hidden"></section>
+  <p id="status" class="status"></p>
+
+  <section class="sheet">
+    <div class="sheet-head"><h2 id="farm-title">Farming</h2></div>
+    <div id="queue"></div>
+  </section>
+
+  <section class="sheet">
+    <div class="sheet-head">
+      <h2 id="games-title">Games</h2>
+      <span id="game-count"></span>
+    </div>
+    <div class="picker">
+      <label class="search"><input id="filter" type="search" placeholder="Add a game" autocomplete="off"></label>
+      <div id="games"></div>
+    </div>
+  </section>
+
+  <details class="sheet log-sheet">
+    <summary id="log-title">Log</summary>
+    <ol id="log"></ol>
+  </details>
+
+  <footer>
+    <button id="now" type="button">Refresh</button>
+    <button id="inventory" type="button">Inventory</button>
+    <button id="extra" class="hidden" type="button">Open</button>
+  </footer>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

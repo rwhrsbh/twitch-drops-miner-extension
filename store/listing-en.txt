@@ -1,0 +1,5 @@
+Drops farms Twitch drops for the games you pick, and it does not play the video.
+
+Progress comes from Twitch, not from a local guess. When a drop is ready, the extension claims it. An exclusive drop is watched only on its own streamer. A regular drop can run on any channel that has drops enabled. If that streamer goes offline, the miner switches to someone who is live.
+
+Sign-in uses the Twitch session already open in the browser.

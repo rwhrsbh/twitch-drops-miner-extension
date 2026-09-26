@@ -1,0 +1,5 @@
+{
+  "name": "rust-drops-extension",
+  "private": true,
+  "type": "module"
+}
