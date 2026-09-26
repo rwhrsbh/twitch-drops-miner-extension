@@ -1,5 +1,9 @@
-Drops farms Twitch drops for the games you pick, and it does not play the video.
+Drops farms Twitch drops for the games you choose. It does not play the stream. It sends the same minute-watched pings as the Twitch player, reads progress from Twitch, and claims a drop when Twitch marks it ready.
 
-Progress comes from Twitch, not from a local guess. When a drop is ready, the extension claims it. An exclusive drop is watched only on its own streamer. A regular drop can run on any channel that has drops enabled. If that streamer goes offline, the miner switches to someone who is live.
+- Sign-in uses the Twitch session already open in this browser. The auth-token cookie is read locally. Your password is never stored.
+- You pick the games. Only those campaigns are farmed.
+- Exclusive drops are watched only on their listed streamers. Regular drops can run on any live channel with drops enabled.
+- If the current streamer goes offline, the miner switches to someone who is live.
+- The popup is available in English and Russian.
 
-Sign-in uses the Twitch session already open in the browser.
+The farming approach follows TwitchDropsMiner by DevilXD. Sign-in was rebuilt around the browser cookie because device-code login was broken. Support for this extension is not guaranteed.
