@@ -1,6 +1,7 @@
-import { resolveLang, t } from "./lib/i18n.js";
+import { resolveLang, show, t } from "./lib/i18n.js";
 
 const $ = (id) => document.getElementById(id);
+let wantedLang = "";
 
 function L(key, vars) {
   return t(latest?.lang, key, vars);
@@ -83,7 +84,7 @@ function streamerChip(channel) {
   const online = typeof channel === "string" ? null : channel.online;
   const state = online === true ? "is-on" : online === false ? "is-off" : "is-unknown";
   const label = online === true ? L("online") : online === false ? L("offline") : "";
-  return `<span class="chip ${state}"><i></i>${escapeHtml(login)} <em>${label}</em><button type="button" data-open="${escapeHtml(login)}">эфир</button></span>`;
+  return `<span class="chip ${state}"><i></i>${escapeHtml(login)} <em>${label}</em><button type="button" data-open="${escapeHtml(login)}">${L("stream")}</button></span>`;
 }
 
 function gameMeta(game) {
@@ -127,6 +128,8 @@ function restoreScroll(spot) {
 
 function render(state) {
   if (!state) return;
+  // Пока фон не подтвердил последний выбранный язык, показываем его, а не то, что пришло раньше.
+  if (wantedLang) state = { ...state, lang: wantedLang };
   const spot = rememberScroll();
   latest = state;
   const on = Boolean(state.enabled);
@@ -156,7 +159,7 @@ function render(state) {
       required: state.watching.required || 0,
       ratio: state.watching.required ? Math.min(100, Math.round(((state.watching.current || 0) / state.watching.required) * 100)) : 0,
     })
-    : (state.message || L("waitFirst"));
+    : (show(state.lang, state.message) || L("waitFirst"));
   status.textContent = /GQL|integrity|Failed to fetch|молчит|не ответил/i.test(raw)
     ? (state.watching ? L("outOf", { current: state.watching.current, required: state.watching.required }) : L("updating"))
     : raw;
@@ -252,7 +255,7 @@ function render(state) {
 
   const lines = (state.log || []).filter((line) => !/нет соединения/.test(line.text));
   $("log").innerHTML = lines.slice(0, 12).map((line) => (
-    `<li><time>${clock(line.at)}</time><span>${escapeHtml(line.text)}</span></li>`
+    `<li><time>${clock(line.at)}</time><span>${escapeHtml(show(state.lang, line.text))}</span></li>`
   )).join("") || `<li><time></time><span>${L("emptyLog")}</span></li>`;
 
   const extra = $("extra");
@@ -380,8 +383,12 @@ $("langs").addEventListener("click", (event) => {
   const button = event.target.closest("[data-lang]");
   if (!button || !latest) return;
   const lang = button.dataset.lang;
-  render({ ...latest, lang });
-  send({ type: "setLanguage", lang }).then((next) => next && render(next));
+  wantedLang = lang;
+  render(latest);
+  send({ type: "setLanguage", lang }).then((next) => {
+    if (next?.lang === wantedLang) wantedLang = "";
+    if (next) render(next);
+  });
 });
 
 document.body.addEventListener("click", (event) => {
