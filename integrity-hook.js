@@ -32,7 +32,17 @@
     } catch {
       // Заголовок страницы не обязателен для самого запроса Twitch.
     }
-    return originalFetch.apply(this, arguments);
+    const pending = originalFetch.apply(this, arguments);
+    const url = typeof input === "string" ? input : input?.url || "";
+    if (/gql\.twitch\.tv\/integrity/.test(url)) {
+      // Срок жизни токена Twitch отдаёт только в ответе, из самого токена его не прочитать.
+      pending.then((response) => response.clone().json()).then((body) => {
+        if (!body?.expiration) return;
+        bag["integrity-expiration"] = String(body.expiration);
+        window.__dropsMinerHeaders = { ...bag };
+      }).catch(() => {});
+    }
+    return pending;
   };
 
   const setRequestHeader = XMLHttpRequest.prototype.setRequestHeader;

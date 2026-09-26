@@ -1,6 +1,6 @@
 import { readState, setEnabled, setLanguage, setWhitelist, tick, watchDrop } from "./lib/miner.js";
 
-const BUILD = "claim-4";
+const BUILD = "expiry-1";
 void BUILD;
 
 chrome.runtime.onInstalled.addListener(() => {

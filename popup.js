@@ -162,7 +162,8 @@ function render(state) {
     : raw;
   status.className = "status";
   if (state.phase === "error" || state.phase === "need-login") status.classList.add("bad");
-  if (state.phase === "pick-game" || state.phase === "not-linked" || state.phase === "no-channel") {
+  if (state.phase === "pick-game" || state.phase === "not-linked" || state.phase === "no-channel"
+    || state.phase === "claim-pending") {
     status.classList.add("wait");
   }
   if (state.phase === "watching" && ping.stale) status.classList.add("stale");
