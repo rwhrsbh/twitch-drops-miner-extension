@@ -272,10 +272,11 @@ function watchChoice(queue, drop) {
     const channel = (item?.channels || []).find((entry) => entry?.online === true);
     return channel ? (channel.login || "") : "";
   };
-  const own = liveLogin(drop);
+  const open = (item) => item && !item.claimed && item.required > 0 && (item.current || 0) < item.required;
+  const own = open(drop) ? liveLogin(drop) : "";
   if (own) return { drop, login: own };
-  if (drop && !(drop.channels || []).length) return { drop, login: "" };
-  const ranked = (queue || []).filter((item) => !item.claimed && item.id !== drop?.id && liveLogin(item));
+  if (open(drop) && !(drop.channels || []).length) return { drop, login: "" };
+  const ranked = (queue || []).filter((item) => open(item) && item.id !== drop?.id && liveLogin(item));
   ranked.sort((left, right) => (right.current > 0) - (left.current > 0)
     || ((right.current || 0) / (right.required || 1)) - ((left.current || 0) / (left.required || 1)));
   const next = ranked[0];
