@@ -11,43 +11,99 @@
       <p id="account" class="whoami"></p>
       <h1 id="title">Drops</h1>
     </div>
-    <div class="langs" id="langs">
-      <button type="button" data-lang="ru">RU</button>
-      <button type="button" data-lang="en">EN</button>
-    </div>
+    <button id="gear" class="gear" type="button" aria-label="Settings" aria-pressed="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
     <button id="toggle" class="switch" type="button" aria-pressed="false" aria-label="Miner">
       <span class="knob"></span>
     </button>
   </header>
 
-  <section id="watch" class="hero hidden"></section>
-  <p id="status" class="status"></p>
+  <div id="settings" class="hidden">
+    <section class="sheet">
+      <div class="sheet-head"><h2 id="settings-title">Settings</h2></div>
+      <div class="picker">
+        <div class="row">
+          <div class="row-text"><strong id="lang-label"></strong></div>
+          <div class="langs" id="langs">
+            <button type="button" data-lang="ru">RU</button>
+            <button type="button" data-lang="en">EN</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-text"><strong id="twitch-label"></strong></div>
+          <button id="twitch-toggle" class="switch" type="button" aria-pressed="false" aria-label="Twitch"><span class="knob"></span></button>
+        </div>
+        <div class="row">
+          <div class="row-text"><strong id="kick-label"></strong></div>
+          <button id="kick-toggle" class="switch" type="button" aria-pressed="false" aria-label="Kick"><span class="knob"></span></button>
+        </div>
+        <div class="row">
+          <div class="row-text"><strong id="auto-title"></strong><small id="auto-hint"></small></div>
+          <button id="auto" class="switch" type="button" aria-pressed="false" aria-label="Auto"><span class="knob"></span></button>
+        </div>
+        <button id="inventory-2" class="row link" type="button"></button>
+      </div>
+    </section>
+    <section id="black" class="sheet">
+      <div class="sheet-head"><h2 id="black-title"></h2><span id="black-count"></span></div>
+      <p id="black-hint" class="hint"></p>
+      <div class="picker">
+        <label class="search"><input id="black-filter" type="search" autocomplete="off"></label>
+        <div id="black-list"></div>
+      </div>
+    </section>
+  </div>
 
-  <section class="sheet">
-    <div class="sheet-head"><h2 id="farm-title">Farming</h2></div>
-    <div id="queue"></div>
-  </section>
+  <div id="main">
+  <div id="duo" class="duo">
+    <section id="watch" class="hero"></section>
+    <section id="kick-watch" class="hero"></section>
+  </div>
 
-  <section class="sheet">
-    <div class="sheet-head">
-      <h2 id="games-title">Games</h2>
-      <span id="game-count"></span>
-    </div>
-    <div class="picker">
-      <label class="search"><input id="filter" type="search" placeholder="Add a game" autocomplete="off"></label>
-      <div id="games"></div>
-    </div>
-  </section>
+  <nav id="tabs" class="tabs">
+    <button type="button" data-tab="twitch"><span>Twitch</span> <em id="tab-twitch-n"></em></button>
+    <button type="button" data-tab="kick"><span>Kick</span> <em id="tab-kick-n"></em></button>
+    <button type="button" data-tab="games"><span id="tab-games-label">Games</span> <em id="tab-games-n"></em></button>
+  </nav>
+
+  <div id="panel-twitch" class="panel">
+    <p id="status" class="status"></p>
+    <section class="sheet">
+      <div class="sheet-head"><h2 id="farm-title">Farming</h2></div>
+      <div id="queue"></div>
+    </section>
+  </div>
+
+  <div id="panel-kick" class="panel hidden">
+    <p id="kick-status" class="status"></p>
+    <div id="kick-list"></div>
+  </div>
+
+  <div id="panel-games" class="panel hidden">
+    <section class="sheet">
+      <div class="sheet-head">
+        <h2 id="games-title">Games</h2>
+        <span id="game-count"></span>
+      </div>
+      <div class="picker">
+        <label class="search"><input id="filter" type="search" placeholder="Add a game" autocomplete="off"></label>
+        <div id="games"></div>
+      </div>
+    </section>
+  </div>
 
   <details class="sheet log-sheet">
     <summary id="log-title">Log</summary>
     <ol id="log"></ol>
   </details>
+  </div>
 
   <footer>
     <button id="now" type="button">Refresh</button>
-    <button id="inventory" type="button">Inventory</button>
     <button id="extra" class="hidden" type="button">Open</button>
+    <button id="kick-login" class="hidden" type="button"></button>
+    <button id="kick-extra" class="hidden" type="button"></button>
   </footer>
   <script type="module" src="popup.js"></script>
 </body>

@@ -3,6 +3,6 @@
     "message": "Drops"
   },
   "extDescription": {
-    "message": "Farms Twitch drops for the games you pick, without playing video. Uses Twitch progress and claims finished drops."
+    "message": "Farms Twitch and Kick drops without playing video. Auto-claims finished drops, can mine all linked campaigns."
   }
 }

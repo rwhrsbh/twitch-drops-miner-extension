@@ -2,15 +2,17 @@
   "manifest_version": 3,
   "default_locale": "en",
   "name": "__MSG_extName__",
-  "version": "1.3.5",
+  "version": "1.6.0",
   "description": "__MSG_extDescription__",
-  "permissions": ["cookies", "alarms", "storage", "tabs", "scripting"],
+  "permissions": ["cookies", "alarms", "storage", "tabs", "scripting", "declarativeNetRequest"],
   "host_permissions": [
     "https://*.twitch.tv/*",
     "https://twitch.tv/*",
     "https://*.twitchcdn.net/*",
     "https://*.live-video.net/*",
-    "https://*.jtvnw.net/*"
+    "https://*.jtvnw.net/*",
+    "https://kick.com/*",
+    "https://*.kick.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -39,6 +41,12 @@
     {
       "matches": ["https://www.twitch.tv/*", "https://twitch.tv/*"],
       "js": ["integrity-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://kick.com/*"],
+      "js": ["kick-hook.js"],
       "run_at": "document_start",
       "world": "MAIN"
     }

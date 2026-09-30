@@ -10,6 +10,10 @@ Sign in to Twitch in this browser. The extension picks up the `auth-token` cooki
 
 Device-code login is not used. That flow in TwitchDropsMiner was broken at the time this extension was published, so sign-in was rebuilt around the cookie you already have after a normal Twitch login.
 
+## Kick
+
+Sign in to kick.com in the same browser. The `session_token` cookie is picked up automatically; nothing to paste. Kick farms in parallel with Twitch, with no game picking: every active campaign is queued, exclusive-channel drops first. Protocol (viewer token, WebSocket handshake/ping, `tracking.user.watch.livestream`, claim) follows [kickautodrops](https://github.com/PBA4EVSKY/kickautodrops) and [GrubDrops](https://github.com/JourneyDocker/GrubDrops). A `declarativeNetRequest` rule sets `Origin`/`Referer` to kick.com for those requests.
+
 ## Farming
 
 The farming mechanism follows [TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) by DevilXD: the same persisted GQL operations and minute-watched channel pings. Thank you.

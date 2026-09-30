@@ -1,9 +1,11 @@
-Drops farms Twitch drops for the games you choose. It does not play the stream. It sends the same minute-watched pings as the Twitch player, reads progress from Twitch, and claims a drop when Twitch marks it ready.
+Drops farms Twitch and Kick drops at the same time. It does not play the stream. On Twitch it sends the same minute-watched pings as the Twitch player; on Kick it keeps the same viewer connection the Kick site uses. Progress is read from each platform, and finished drops are claimed automatically.
 
-- Sign-in uses the Twitch session already open in this browser. The auth-token cookie is read locally. Your password is never stored.
-- You pick the games. Only those campaigns are farmed.
-- Exclusive drops are watched only on their listed streamers. Regular drops can run on any live channel with drops enabled.
-- If the current streamer goes offline, the miner switches to someone who is live.
-- The popup is available in English and Russian.
+- Sign-in uses the Twitch and Kick sessions already open in this browser. The cookies are read locally. Your password is never stored.
+- Pick the games you want, or turn on "Mine all available campaigns". In that mode your games go first, then every other linked campaign. A blacklist keeps games you never want farmed.
+- Exclusive drops are watched only on their listed streamers, live ones first. Regular drops run on any live channel in the right game.
+- If a streamer goes offline or switches to another game, the miner moves to someone who is live in that game.
+- If progress stops without an error, the miner changes channel, and if that does not help, it opens a pinned muted tab with the real player until minutes count again.
+- Click any drop in the popup to farm it next.
+- The popup shows both miners side by side and is available in English and Russian.
 
-The farming approach follows TwitchDropsMiner by DevilXD. Sign-in was rebuilt around the browser cookie because device-code login was broken. Support for this extension is not guaranteed.
+The Twitch farming approach follows TwitchDropsMiner by DevilXD. The Kick protocol follows kickautodrops. Support for this extension is not guaranteed.
