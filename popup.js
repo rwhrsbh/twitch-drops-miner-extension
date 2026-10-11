@@ -1,3 +1,4 @@
+import { FEATURES } from "./lib/constants.js";
 import { resolveLang, show, t } from "./lib/i18n.js";
 
 const $ = (id) => document.getElementById(id);
@@ -164,35 +165,85 @@ function streamerChip(channel) {
   return `<span class="chip ${state}"><i></i>${escapeHtml(login)} <em>${label}</em><button type="button" data-open="${escapeHtml(login)}">${L("stream")}</button></span>`;
 }
 
+// Чей список игр открыт на вкладке: одна площадка и один её аккаунт (у каждого аккаунта список свой).
+let gamesSide = "twitch";
+try {
+  if (localStorage.getItem("gamesSide") === "kick") gamesSide = "kick";
+} catch {
+  // Без хранилища открывается список Twitch.
+}
+
+// Игры открытого списка. Id: у Twitch — id игры, "w:<название>" — добавлена по названию и ждёт кампанию;
+// у Kick — "k:<название>" (Kick выбирает игры по названию).
 function pickerGames() {
-  const twitch = latest?.games || [];
-  const kickGames = kickState?.games || [];
-  const kickNames = new Set(kickGames.map((game) => game.name.toLowerCase()));
-  const known = new Set(twitch.map((game) => game.name.toLowerCase()));
-  const list = twitch.map((game) => ({ ...game, onKick: kickNames.has(game.name.toLowerCase()) }));
-  for (const game of kickGames) {
-    if (known.has(game.name.toLowerCase())) continue;
-    list.push({ id: `k:${game.name}`, name: game.name, image: game.image, kickOnly: true, linked: game.linked, campaigns: game.campaigns });
+  const chosen = selectedGameIds();
+  const list = gamesSide === "kick"
+    ? (kickState?.games || []).map((game) => ({ id: `k:${game.name}`, name: game.name, image: game.image, kickOnly: true, linked: game.linked, campaigns: game.campaigns }))
+    : (latest?.games || []).map((game) => ({ ...game }));
+  // Выбранные игры, у которых сейчас нет кампаний: остаются в списке и ждут новую кампанию.
+  const present = new Set(list.map((game) => String(game.id)));
+  const picks = latest?.picks || {};
+  for (const id of chosen) {
+    if (present.has(String(id))) continue;
+    if (id.startsWith("k:") || id.startsWith("w:")) list.push({ id, name: id.slice(2), image: "", kickOnly: id.startsWith("k:"), gone: true });
+    else list.push({ id, name: picks[id]?.name || `${L("gameFallback")} #${id}`, image: picks[id]?.image || "", gone: true });
   }
   return list.sort((left, right) => left.name.localeCompare(right.name, "ru"));
 }
 
+function side(platform) {
+  return accounts?.[platform] || { active: "", list: [] };
+}
+
+function targetId(platform) {
+  const mine = side(platform);
+  return mine.list.some((item) => item.id === editing[platform]) ? editing[platform] : mine.active;
+}
+
+// Правим активный аккаунт (или аккаунтов ещё нет): выбор лежит в живом состоянии майнера.
+function editsLive(platform) {
+  const mine = side(platform);
+  return !mine.list.length || targetId(platform) === mine.active;
+}
+
+function targetAccount(platform) {
+  return side(platform).list.find((item) => item.id === targetId(platform)) || null;
+}
+
+// Названия, добавленные вручную и ждущие кампанию, у открытого аккаунта Twitch.
+function twitchWishes() {
+  return (editsLive("twitch") ? settings.wishes : targetAccount("twitch")?.wishes) || [];
+}
+
 function selectedGameIds() {
-  return new Set([...(latest?.whitelist || []), ...(settings.picked || []).map((name) => `k:${name}`)]);
+  if (gamesSide === "kick") {
+    const picked = editsLive("kick") ? settings.picked || [] : targetAccount("kick")?.picked || [];
+    const exact = new Map((kickState?.games || []).map((game) => [game.name.toLowerCase(), game.name]));
+    return new Set(picked.map((name) => `k:${exact.get(String(name).toLowerCase()) || name}`));
+  }
+  const ids = (editsLive("twitch") ? latest?.whitelist || [] : targetAccount("twitch")?.whitelist || []).map(String);
+  // Название не показываем отдельной строкой, если такая игра уже есть в списке игр или уже выбрана.
+  const picks = latest?.picks || {};
+  const known = new Set((latest?.games || []).map((game) => game.name.toLowerCase()));
+  for (const id of ids) if (picks[id]?.name) known.add(picks[id].name.toLowerCase());
+  const waiting = twitchWishes().filter((name) => !known.has(name.toLowerCase()));
+  return new Set([...ids, ...waiting.map((name) => `w:${name}`)]);
 }
 
 function gameMeta(game) {
+  if (game.gone) return L("noCampaignNow");
+  // Привязка и прогресс известны только для активного аккаунта: у остальных их не показываем.
+  const own = editsLive(game.kickOnly ? "kick" : "twitch");
   if (game.kickOnly) {
-    const kickBits = ["Kick"];
-    if (!game.linked) kickBits.push(L("kickLinkNeeded"));
+    const kickBits = [];
+    if (own && !game.linked) kickBits.push(L("kickLinkNeeded"));
     kickBits.push(game.campaigns === 1 ? L("oneCampaign") : L("manyCampaigns", { count: game.campaigns }));
     return kickBits.join(" · ");
   }
   const bits = [];
-  if (game.onKick) bits.push("Twitch + Kick");
-  if (!game.linked) bits.push(L("notLinkedGame"));
-  if (game.total) bits.push(game.left ? L("ofTotal", { left: game.left, total: game.total }) : L("gotAll"));
-  else bits.push(game.campaigns === 1 ? L("oneCampaign") : L("manyCampaigns", { count: game.campaigns }));
+  if (own && !game.linked) bits.push(L("notLinkedGame"));
+  if (own && game.total) bits.push(game.left ? L("ofTotal", { left: game.left, total: game.total }) : L("gotAll"));
+  else if (game.campaigns) bits.push(game.campaigns === 1 ? L("oneCampaign") : L("manyCampaigns", { count: game.campaigns }));
   return bits.join(" · ");
 }
 
@@ -260,6 +311,99 @@ function paintHero(box, card) {
   hideBrokenImages(box);
 }
 
+// Остальные аккаунты Twitch, которые фармят одновременно с активным: по карточке на каждый.
+let sideFarm = {};
+let kickSideFarm = {};
+const SIDE_NOTES = {
+  "need-login": "accountExpired",
+  "no-channel": "sideNoChannel",
+  "all-claimed": "sideAllClaimed",
+  "no-campaign": "sideNoCampaign",
+  "pick-game": "sidePickGame",
+  "needs-main": "sideNeedsMain",
+  "not-linked": "sideNotLinked",
+  waiting: "sideWaiting",
+  error: "sideError",
+};
+
+function renderSideCards() {
+  const box = $("duo-more");
+  const cards = [];
+  if (accounts?.rotate?.mode === "all") {
+    for (const platform of ["twitch", "kick"]) {
+      const mine = side(platform);
+      const farm = platform === "kick" ? kickSideFarm : sideFarm;
+      const enabled = platform === "kick" ? kickState?.enabled !== false : latest?.enabled !== false;
+      if (!enabled) continue;
+      for (const account of mine.list) {
+        if (account.id !== mine.active && farm[account.id]) cards.push({ platform, account, info: farm[account.id] });
+      }
+    }
+  }
+  box.classList.toggle("hidden", !cards.length);
+  // Карточки создаются один раз на аккаунт и потом только перерисовываются: картинки не мигают.
+  const keyOf = (card) => `${card.platform}:${card.account.id}`;
+  for (const node of [...box.children]) if (!cards.some((card) => keyOf(card) === node.dataset.side)) node.remove();
+  for (const card of cards) {
+    let node = [...box.children].find((item) => item.dataset.side === keyOf(card));
+    if (!node) {
+      node = document.createElement("section");
+      node.dataset.side = keyOf(card);
+      box.append(node);
+    }
+    const { info, account, platform } = card;
+    const item = info.watching;
+    const kick = platform === "kick";
+    paintHero(node, {
+      platform: kick ? "Kick" : "Twitch",
+      user: account.login || info.login || "",
+      item,
+      on: true,
+      ping: item ? ago(kick ? info.lastPing : info.lastPing?.at).text : "",
+      openAttr: kick ? "data-open-kick" : "data-open",
+      backdrop: item ? (kick ? safeUrl(item.campaignImage) : campaignUrl(item)) : "",
+      reward: item ? (kick ? safeUrl(item.image) : rewardUrl(item)) : "",
+      message: L(SIDE_NOTES[info.phase] || "kickIdleShort"),
+      bad: info.phase === "need-login" || info.phase === "error",
+    });
+  }
+}
+
+// Вкладки Twitch и Kick в режиме «все сразу»: чью очередь показывать.
+const viewAcc = { twitch: "", kick: "" };
+
+function viewedId(platform) {
+  const mine = side(platform);
+  return mine.list.some((item) => item.id === viewAcc[platform]) ? viewAcc[platform] : mine.active;
+}
+
+// Данные выбранного неактивного аккаунта или null, если показывается активный.
+function viewedSide(platform) {
+  const mine = side(platform);
+  if (accounts?.rotate?.mode !== "all" || viewedId(platform) === mine.active) return null;
+  return (platform === "kick" ? kickSideFarm : sideFarm)[viewedId(platform)] || { queue: [], watching: null };
+}
+
+function paintViewChips(platform) {
+  const mine = side(platform);
+  const box = $(`${platform}-accounts`);
+  if (accounts?.rotate?.mode !== "all" || mine.list.length < 2) {
+    box.innerHTML = "";
+    return;
+  }
+  const current = viewedId(platform);
+  box.innerHTML = `<div class="acc-row">${mine.list.map((item) => (
+    `<button class="acc-chip${item.id === current ? " on" : ""}" type="button" data-view="${platform}" data-id="${escapeHtml(item.id)}">${escapeHtml(item.login || item.id)}</button>`
+  )).join("")}</div>`;
+}
+
+document.addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-view]");
+  if (!chip) return;
+  viewAcc[chip.dataset.view] = chip.dataset.id;
+  if (latest) render(latest);
+});
+
 function paintSwitches(twitch, kick) {
   const twitchOn = Boolean(twitch?.enabled);
   const kickOn = kick ? Boolean(kick.enabled) : true;
@@ -277,7 +421,8 @@ function paintAccount() {
   const kick = kickIn ? kickState.user || L("signedShort") : "";
   let text;
   if (!twitch && !kick) text = L("noLoginBoth");
-  else text = `Twitch: ${twitch || L("noLoginShort")} · Kick: ${kick || L("noLoginShort")}`;
+  // Это аккаунты самого браузера: под ними пользователь окажется, открыв twitch.tv или kick.com.
+  else text = `${L("browserAs")}: Twitch ${twitch || L("noLoginShort")} · Kick ${kick || L("noLoginShort")}`;
   $("account").textContent = text;
 }
 
@@ -348,13 +493,29 @@ function render(state) {
 
   const query = filterText.trim().toLowerCase();
   const selectedIds = selectedGameIds();
-  const pool = pickerGames().filter((game) => {
+  const everyGame = pickerGames();
+  const pool = everyGame.filter((game) => {
     if (!query) return selectedIds.has(game.id);
     return game.name.toLowerCase().includes(query);
   });
-  $("game-count").textContent = selectedIds.size ? String(selectedIds.size) : "";
-  $("tab-games-n").textContent = selectedIds.size ? String(selectedIds.size) : "";
+  const pickedCount = everyGame.filter((game) => selectedIds.has(game.id)).length;
+  $("game-count").textContent = pickedCount ? String(pickedCount) : "";
+  $("tab-games-n").textContent = pickedCount ? String(pickedCount) : "";
+  // Такой игры в списке нет: её можно добавить по названию, она включится, когда появится кампания.
+  const typed = filterText.trim();
+  const addRow = typed.length >= 2 && !everyGame.some((game) => game.name.toLowerCase() === query)
+    ? `
+      <label class="game">
+        <input data-game="${escapeHtml(`${gamesSide === "kick" ? "k" : "w"}:${typed}`)}" data-name="${escapeHtml(typed)}" type="checkbox">
+        <span>
+          <strong>${escapeHtml(L("addByName", { name: typed }))}</strong>
+          <small>${escapeHtml(L("addByNameHint"))}</small>
+        </span>
+        <span class="check"></span>
+      </label>`
+    : "";
   $("tab-games-label").textContent = L(settings.autoAll ? "priorityHeading" : "gamesHeading");
+  paintGamesHint();
   setHtml($("games"), pool.length
     ? pool.map((game) => {
       const art = safeUrl(game.image) || (game.kickOnly ? "" : boxArt(game.id, "144x192"));
@@ -368,9 +529,13 @@ function render(state) {
         </span>
         <span class="check"></span>
       </label>`;
-    }).join("")
-    : `<p class="empty">${query ? L("noSuchGame") : L("typeToAdd")}</p>`);
+    }).join("") + addRow
+    : addRow || `<p class="empty">${query ? L("noSuchGame") : L("typeToAdd")}</p>`);
 
+  // В режиме «все сразу» вкладка показывает очередь выбранного аккаунта.
+  paintViewChips("twitch");
+  const otherTwitch = viewedSide("twitch");
+  if (otherTwitch) state = { ...state, queue: otherTwitch.queue || [], watching: otherTwitch.watching || null };
   const queue = $("queue");
   const activeId = state.watching?.dropId || "";
   const drops = (state.queue || []).filter((drop) => !drop.claimed);
@@ -388,8 +553,8 @@ function render(state) {
   if (drops.length) {
     queue.classList.remove("hidden");
     setHtml(queue, [
-      renderBucket(L("exclusive"), exclusive, true),
-      renderBucket(L("regular"), general, false),
+      renderBucket(L("exclusive"), exclusive, true, state),
+      renderBucket(L("regular"), general, false, state),
     ].join(""));
   } else {
     queue.classList.add("hidden");
@@ -415,6 +580,7 @@ function render(state) {
   renderSettings();
   // Kick перерисовывается вместе с Twitch, иначе после смены языка его подписи остаются старыми.
   if (kickState) renderKick(kickState);
+  renderExtras();
 }
 
 // Эксклюзивный дроп без канала в сети и в нужной игре выбрать нельзя: минуты там не идут.
@@ -456,7 +622,7 @@ function peopleHtml(channels, attr) {
 }
 
 function dropCard(drop, state, showCampaignArt) {
-  const live = state.watching && (drop.id === state.watching.dropId || drop.name === state.watching.name);
+  const live = state.watching && (state.watching.dropId ? drop.id === state.watching.dropId : drop.name === state.watching.name);
   const locked = !live && isLocked(drop);
   const minutes = drop.current || 0;
   const ratio = drop.required ? Math.min(100, Math.round((minutes / drop.required) * 100)) : 0;
@@ -478,7 +644,7 @@ function dropCard(drop, state, showCampaignArt) {
     </article>`;
 }
 
-function renderBucket(title, items, showCampaignArt) {
+function renderBucket(title, items, showCampaignArt, state = latest) {
   if (!items.length) return "";
   const groups = [];
   for (const drop of items) {
@@ -495,7 +661,7 @@ function renderBucket(title, items, showCampaignArt) {
     const head = !showCampaignArt && group.drops.length
       ? `<div class="camp">${group.image ? `<img class="camp-art" src="${escapeHtml(group.image)}" alt="">` : ""}<span>${escapeHtml(group.name)}</span></div>`
       : "";
-    return head + group.drops.map((drop) => dropCard(drop, latest, showCampaignArt)).join("");
+    return head + group.drops.map((drop) => dropCard(drop, state, showCampaignArt)).join("");
   }).join("");
   return `<section class="bucket${showCampaignArt ? " exclusive" : " general"}"><p class="bucket-label">${title} · ${items.length}</p><div class="bucket-card">${cards}</div></section>`;
 }
@@ -571,6 +737,10 @@ document.body.addEventListener("click", (event) => {
     return;
   }
   const kickRow = event.target.closest("[data-kdrop]");
+  if (kickRow && viewedSide("kick")) {
+    send({ type: "watchKickSideDrop", account: viewedId("kick"), id: kickRow.dataset.kdrop });
+    return;
+  }
   if (kickRow && kickState) {
     const picked = (kickState.queue || []).find((item) => item.id === kickRow.dataset.kdrop);
     if (picked) {
@@ -596,6 +766,16 @@ document.body.addEventListener("click", (event) => {
   }
   const row = event.target.closest("[data-drop]");
   if (!row?.dataset.drop || !latest) return;
+  // Очередь другого аккаунта: выбор дропа уходит ему, а не аккаунту браузера.
+  if (viewedSide("twitch")) {
+    const id = viewedId("twitch");
+    const picked = (sideFarm[id]?.queue || []).find((item) => item.id === row.dataset.drop);
+    if (picked && !isLocked(picked)) {
+      sideFarm = { ...sideFarm, [id]: { ...sideFarm[id], preferDropId: picked.id } };
+      send({ type: "watchSideDrop", account: id, id: picked.id });
+    }
+    return;
+  }
   const drop = (latest.queue || []).find((item) => item.id === row.dataset.drop);
   if (drop && isLocked(drop)) return;
   if (drop) {
@@ -628,16 +808,53 @@ document.body.addEventListener("click", (event) => {
   send({ type: "watchDrop", id: row.dataset.drop }).then((state) => state && render(state));
 });
 
+// Ответ на прежний клик приходит уже после следующего: применять его нельзя, он откатил бы новую отметку.
+let gameEdit = 0;
 $("games").addEventListener("change", (event) => {
   const box = event.target.closest("input[data-game]");
   if (!box || !latest) return;
+  gameEdit += 1;
+  const mark = gameEdit;
+  const last = (apply) => (value) => { if (mark === gameEdit) apply(value); };
   const ids = selectedGameIds();
   if (box.checked) ids.add(box.dataset.game);
   else ids.delete(box.dataset.game);
-  const twitchIds = [...ids].filter((id) => !id.startsWith("k:"));
-  const picked = [...ids].filter((id) => id.startsWith("k:")).map((id) => id.slice(2));
+
+  if (gamesSide === "kick") {
+    const picked = [...ids].map((id) => id.slice(2));
+    if (editsLive("kick")) {
+      settings = { ...settings, picked };
+      send({ type: "setSettings", patch: { picked } }).then(last((next) => { if (next) settings = next; }));
+    } else {
+      // Выбор для неактивного аккаунта сохраняется в его записи и применится при переключении.
+      const account = targetAccount("kick");
+      if (account) account.picked = picked;
+      send({ type: "setAccountSelection", platform: "kick", id: targetId("kick"), patch: { picked } }).then(last(applyAccounts));
+    }
+    render(latest);
+    return;
+  }
+
+  // wishes — названия, добавленные вручную: по ним игра выберется сама, когда у неё появится кампания.
+  // Снятая игра уходит и оттуда, иначе она выберется снова.
+  const typedName = (box.dataset.name || "").trim();
+  const before = twitchWishes();
+  const wishes = before.filter((item) => item.toLowerCase() !== typedName.toLowerCase());
+  if (box.checked && box.dataset.game.startsWith("w:") && typedName) wishes.push(typedName);
+  const wishesChanged = wishes.join("\n") !== before.join("\n");
+  const twitchIds = [...ids].filter((id) => !id.startsWith("w:"));
+  if (!editsLive("twitch")) {
+    const account = targetAccount("twitch");
+    if (account) Object.assign(account, { whitelist: twitchIds, wishes });
+    send({ type: "setAccountSelection", platform: "twitch", id: targetId("twitch"), patch: { whitelist: twitchIds, wishes } }).then(last(applyAccounts));
+    render(latest);
+    return;
+  }
+  if (wishesChanged) {
+    settings = { ...settings, wishes };
+    send({ type: "setSettings", patch: { wishes } }).then(last((next) => { if (next) settings = { ...settings, wishes: next.wishes }; }));
+  }
   const names = new Set((latest.games || []).filter((game) => twitchIds.includes(game.id)).map((game) => game.name));
-  settings = { ...settings, picked };
   render({
     ...latest,
     whitelist: twitchIds,
@@ -645,25 +862,43 @@ $("games").addEventListener("change", (event) => {
     queue: settings.autoAll ? latest.queue : (latest.queue || []).filter((drop) => names.has(drop.game)),
     watching: settings.autoAll || (latest.watching && names.has(latest.watching.game)) ? latest.watching : null,
   });
-  send({ type: "setWhitelist", ids: twitchIds }).then((state) => state && render(state));
-  send({ type: "setSettings", patch: { picked } }).then((next) => {
-    if (next) settings = next;
-  });
+  send({ type: "setWhitelist", ids: twitchIds }).then(last((state) => state && render(state)));
 });
 
 let kickState = null;
 let kickPing = null;
+let accounts = null;
+let pointsState = null;
+let kickPointsState = null;
+// Какая платформа открыта на вкладке баллов.
+let pointsSide = "kick";
+try {
+  if (FEATURES.twitchPoints && localStorage.getItem("pointsSide") !== "kick") pointsSide = "twitch";
+} catch {
+  // Без хранилища открывается Kick.
+}
+let historyList = [];
+let pointsQuery = "";
+let pointsFound = [];
+let pointsSearchTimer = 0;
+let pendingAdd = "";
+// Для какого аккаунта правим выбор игр и каналов; пусто = активный.
+const editing = { twitch: "", kick: "" };
+
+// Баллы спрятаны целиком, пока выключены обе платформы (FEATURES в lib/constants.js).
+const POINTS_UI = FEATURES.twitchPoints || FEATURES.kickPoints;
 
 function savedTab() {
   try {
-    return localStorage.getItem("tab") || "twitch";
+    const tab = localStorage.getItem("tab") || "twitch";
+    return tab === "points" && !POINTS_UI ? "twitch" : tab;
   } catch {
     return "twitch";
   }
 }
 
 function setTab(name) {
-  for (const key of ["twitch", "kick", "games"]) {
+  for (const key of ["twitch", "kick", "points", "games", "history"]) {
     $(`panel-${key}`).classList.toggle("hidden", key !== name);
   }
   document.querySelectorAll("#tabs [data-tab]").forEach((button) => {
@@ -834,7 +1069,10 @@ function renderKick(state) {
   const kickOpen = (state.queue || []).filter((row) => !row.claimed).length;
   $("tab-kick-n").textContent = state.enabled && kickOpen ? String(kickOpen) : "";
   status.classList.toggle("hidden", !state.enabled || state.phase !== "error");
-  setHtml($("kick-list"), state.enabled ? renderKickQueue(state) : "");
+  paintViewChips("kick");
+  const otherKick = viewedSide("kick");
+  const shown = otherKick ? { ...state, queue: otherKick.queue || [], watching: otherKick.watching || null } : state;
+  setHtml($("kick-list"), state.enabled ? renderKickQueue(shown) : "");
   const extra = $("kick-extra");
   const wantsLink = state.enabled && (state.phase === "pick-game" || state.phase === "not-linked");
   extra.classList.toggle("hidden", !wantsLink);
@@ -863,6 +1101,12 @@ $("kick-login").addEventListener("click", () => chrome.tabs.create({ url: "https
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
+  // Смена аккаунта подставляет в настройки его игры Kick и ожидающие названия: без этого попап показал бы
+  // и записал список прежнего аккаунта новому.
+  if (changes.settings?.newValue) {
+    settings = { ...settings, ...changes.settings.newValue };
+    if (latest && !changes.state?.newValue) render(latest);
+  }
   if (changes.state?.newValue) render(changes.state.newValue);
   if (changes.kick?.newValue) renderKick(changes.kick.newValue);
   if (changes.kickPing?.newValue) {
@@ -888,3 +1132,426 @@ send({ type: "getSettings" }).then((value) => {
   if (latest) render(latest);
   renderSettings();
 });
+
+
+// ---------- Баллы, история, аккаунты ----------
+
+function accountChips(platform) {
+  const mine = side(platform);
+  if (mine.list.length < 2) return "";
+  const target = targetId(platform);
+  const chips = mine.list.map((item) => (
+    `<button class="acc-chip${item.id === target ? " on" : ""}" type="button" data-edit="${platform}" data-id="${escapeHtml(item.id)}">${escapeHtml(item.login || item.id)}</button>`
+  )).join("");
+  return `<div class="acc-row"><span>${platform === "twitch" ? "Twitch" : "Kick"}</span>${chips}</div>`;
+}
+
+// Подпись над списком игр: что он значит и чей он.
+function paintGamesHint() {
+  const login = targetAccount(gamesSide)?.login || "";
+  const who = `${gamesSide === "twitch" ? "Twitch" : "Kick"} ${login}`.trim();
+  $("games-hint").textContent = `${L(settings.autoAll ? "gamesHintPriority" : "gamesHintOnly")} ${L("gamesHintWho", { who })}`;
+}
+
+// Выбор, чей список игр открыт: по одной кнопке на аккаунт (или на площадку, если аккаунтов нет).
+function gamesChips() {
+  const chips = [];
+  for (const platform of ["twitch", "kick"]) {
+    const mine = side(platform);
+    const rows = mine.list.length ? mine.list : [{ id: "", login: "" }];
+    for (const item of rows) {
+      const on = platform === gamesSide && (!item.id || item.id === targetId(platform));
+      chips.push(`<button class="acc-chip${on ? " on" : ""}" type="button" data-games-side="${platform}" data-id="${escapeHtml(item.id)}"><b>${platform === "twitch" ? "Twitch" : "Kick"}</b>${escapeHtml(item.login || "")}</button>`);
+    }
+  }
+  return `<div class="acc-cap">${escapeHtml(L("gamesEditWho"))}</div><div class="acc-row">${chips.join("")}</div>`;
+}
+
+function sideState(platform = pointsSide) {
+  return platform === "kick" ? kickPointsState : pointsState;
+}
+
+function pointsChannels(platform = pointsSide) {
+  return editsLive(platform) ? sideState(platform)?.channels || [] : targetAccount(platform)?.points || [];
+}
+
+function channelRow(channel, picked) {
+  const info = picked && editsLive(pointsSide) ? sideState()?.status?.[channel.login] || {} : {};
+  const live = picked ? info.live : channel.live;
+  const bits = [];
+  if (picked) {
+    bits.push(`<i class="dot${info.live ? " on" : ""}"></i>${info.live ? L("pointsLive") : L("pointsOffline")}`);
+    if (info.watching && info.live) bits.push(L("pointsWatching"));
+    if (info.lastGain && (info.claimedAt || info.gainAt)) bits.push(`+${info.lastGain} · ${clock(info.claimedAt || info.gainAt)}`);
+  } else {
+    bits.push(`<i class="dot${live ? " on" : ""}"></i>${live ? L("pointsLive") : L("pointsOffline")}`);
+  }
+  const amount = picked && typeof info.balance === "number" ? `<span class="amount">${info.balance.toLocaleString()}</span>` : "";
+  return `
+    <label class="game${picked ? " on" : ""}">
+      <input type="checkbox" data-channel="${escapeHtml(channel.login)}" ${picked ? "checked" : ""}>
+      ${safeUrl(channel.image) ? `<img class="avatar" src="${escapeHtml(channel.image)}" alt="">` : ""}
+      <span><strong>${escapeHtml(channel.name || channel.login)}</strong><small>${bits.join(" · ")}</small></span>
+      ${amount}
+      <span class="check"></span>
+    </label>`;
+}
+
+function dropChannelRow(login, info) {
+  const amount = typeof info.balance === "number" ? `<span class="amount">${info.balance.toLocaleString()}</span>` : "";
+  const bits = [`<i class="dot on"></i>${L("pointsDropChannel")}`];
+  if (info.lastGain && (info.claimedAt || info.gainAt)) bits.push(`+${info.lastGain} · ${clock(info.claimedAt || info.gainAt)}`);
+  return `<div class="game auto"><span><strong>${escapeHtml(login)}</strong><small>${bits.join(" · ")}</small></span>${amount}</div>`;
+}
+
+function renderPoints() {
+  document.querySelector('#tabs [data-tab="points"]').classList.toggle("hidden", !POINTS_UI);
+  $("points-row").classList.toggle("hidden", !POINTS_UI);
+  if (!POINTS_UI) return;
+  $("tab-points-label").textContent = L("tabPoints");
+  $("points-title").textContent = L("pointsTitle");
+  $("points-hint").textContent = L(pointsSide === "kick" ? "kickPointsHint" : "pointsHint");
+  $("points-sides").classList.toggle("hidden", !FEATURES.twitchPoints);
+  for (const button of $("points-sides").querySelectorAll("button")) button.classList.toggle("on", button.dataset.side === pointsSide);
+  $("points-filter").placeholder = L("pointsSearch");
+  const pointsOn = Boolean(pointsState?.enabled);
+  $("points-label").textContent = L("pointsToggle");
+  $("points-toggle-hint").textContent = L("pointsToggleHint");
+  $("points-toggle").setAttribute("aria-pressed", pointsOn ? "true" : "false");
+  $("points-off").textContent = L("pointsOff");
+  $("points-off").classList.toggle("hidden", pointsOn);
+  const channels = pointsChannels();
+  const chosen = new Set(channels.map((channel) => channel.login));
+  $("points-count").textContent = channels.length ? String(channels.length) : "";
+  const total = (FEATURES.twitchPoints ? pointsChannels("twitch").length : 0) + pointsChannels("kick").length;
+  $("tab-points-n").textContent = total ? String(total) : "";
+  $("points-accounts").innerHTML = accountChips(pointsSide);
+  const found = pointsFound.filter((channel) => !chosen.has(channel.login));
+  setHtml($("points-results"), pointsQuery.trim()
+    ? (found.length ? found.map((channel) => channelRow(channel, false)).join("") : `<p class="empty">${L(pointsFound.error === "need-login" ? "pointsNeedLogin" : "pointsNone")}</p>`)
+    : "");
+  // Канал, где сейчас фармится дроп: проверяется сам, в список его добавлять не нужно.
+  const dropRows = editsLive(pointsSide) && pointsOn
+    ? Object.entries(sideState()?.status || {}).filter(([login, info]) => info.drop && !chosen.has(login))
+      .map(([login, info]) => dropChannelRow(login, info)).join("")
+    : "";
+  setHtml($("points-list"), (channels.length
+    ? channels.map((channel) => channelRow(channel, true)).join("")
+    : (pointsQuery.trim() || dropRows ? "" : `<p class="empty">${L("pointsEmpty")}</p>`)) + dropRows);
+  hideBrokenImages($("panel-points"));
+}
+
+function savePoints(channels) {
+  const platform = pointsSide;
+  const put = (value) => {
+    if (platform === "kick") kickPointsState = value;
+    else pointsState = value;
+  };
+  if (editsLive(platform)) {
+    put({ ...(sideState(platform) || {}), channels });
+    send({ type: platform === "kick" ? "setKickPointsChannels" : "setPointsChannels", channels })
+      .then((next) => { if (next) put(next); renderPoints(); });
+  } else {
+    const account = targetAccount(platform);
+    if (account) account.points = channels;
+    send({ type: "setAccountSelection", platform, id: targetId(platform), patch: { points: channels } }).then(applyAccounts);
+  }
+  renderPoints();
+}
+
+$("points-filter").addEventListener("input", (event) => {
+  pointsQuery = event.target.value;
+  clearTimeout(pointsSearchTimer);
+  if (!pointsQuery.trim()) {
+    pointsFound = [];
+    renderPoints();
+    return;
+  }
+  const asked = pointsQuery;
+  pointsSearchTimer = setTimeout(async () => {
+    const platform = pointsSide;
+    const reply = await send({ type: platform === "kick" ? "searchKickChannels" : "searchChannels", query: asked });
+    if (asked !== pointsQuery || platform !== pointsSide) return;
+    pointsFound = reply?.items || [];
+    pointsFound.error = reply?.error || "";
+    renderPoints();
+  }, 350);
+});
+
+$("points-sides").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-side]");
+  if (!button || button.dataset.side === pointsSide) return;
+  pointsSide = button.dataset.side;
+  try {
+    localStorage.setItem("pointsSide", pointsSide);
+  } catch {
+    // Без хранилища выбор просто не запоминается.
+  }
+  pointsQuery = "";
+  pointsFound = [];
+  $("points-filter").value = "";
+  renderPoints();
+});
+
+$("points-toggle").addEventListener("click", async () => {
+  const on = !pointsState?.enabled;
+  pointsState = { ...(pointsState || {}), enabled: on };
+  renderPoints();
+  const next = await send({ type: "setPointsEnabled", enabled: on });
+  if (next) pointsState = next;
+  renderPoints();
+});
+
+$("panel-points").addEventListener("change", (event) => {
+  const box = event.target.closest("input[data-channel]");
+  if (!box) return;
+  const login = box.dataset.channel;
+  const current = pointsChannels();
+  if (box.checked) {
+    const found = pointsFound.find((channel) => channel.login === login);
+    if (!found) return;
+    savePoints([...current, { login: found.login, id: found.id, name: found.name, image: found.image }]);
+  } else {
+    savePoints(current.filter((channel) => channel.login !== login));
+  }
+});
+
+function historyRow(item) {
+  const platform = item.platform === "kick" ? "Kick" : "Twitch";
+  const art = item.kind === "points"
+    ? (safeUrl(item.image) ? `<img class="avatar" src="${escapeHtml(item.image)}" alt="">` : `<span class="badge">+</span>`)
+    : (safeUrl(item.image) ? `<img class="thumb" src="${escapeHtml(item.image)}" alt="">` : `<span class="badge">${platform[0]}</span>`);
+  const title = item.kind === "points" ? `${item.name} ${L("pointsWord")}` : item.name;
+  const sub = [item.game, platform, item.account].filter(Boolean).join(" · ");
+  const locale = resolveLang(latest?.lang) === "en" ? "en-US" : "ru-RU";
+  const day = new Date(item.at).toLocaleDateString(locale, { day: "numeric", month: "short" });
+  return `<div class="hist">${art}<span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(sub)}</small></span><time>${day}<br>${clock(item.at)}</time></div>`;
+}
+
+function renderHistory() {
+  $("tab-history-label").textContent = L("tabHistory");
+  $("history-title").textContent = L("historyTitle");
+  $("history-clear").textContent = historyList.length ? L("historyClear") : "";
+  setHtml($("history-list"), historyList.length
+    ? historyList.slice(0, 100).map(historyRow).join("")
+    : `<p class="empty">${L("historyEmpty")}</p>`);
+  hideBrokenImages($("panel-history"));
+}
+
+$("history-clear").addEventListener("click", async () => {
+  historyList = (await send({ type: "clearHistory" })) || [];
+  renderHistory();
+});
+
+function renderAccounts() {
+  $("accounts-title").textContent = L("accountsTitle");
+  $("accounts-hint").textContent = L("accountsHint");
+  $("add-twitch").textContent = L("addTwitch");
+  $("add-kick").textContent = L("addKick");
+  $("rotate-title").textContent = L("rotateTitle");
+  $("accounts-confirm-text").textContent = L("accountsConfirm");
+  $("accounts-confirm-yes").textContent = L("continueWord");
+  $("accounts-confirm-no").textContent = L("cancelWord");
+  $("accounts-adding").textContent = addingNow
+    ? `${L("accountAdding", { site: addingNow === "kick" ? "Kick" : "Twitch" })} ${L("accountAddingGoogle")}`
+    : "";
+  $("accounts-adding").classList.toggle("hidden", !addingNow);
+  const rows = [];
+  for (const platform of ["twitch", "kick"]) {
+    const mine = side(platform);
+    for (const item of mine.list) {
+      const active = item.id === mine.active;
+      rows.push(`
+        <div class="row acc-item" data-switch="${platform}" data-id="${escapeHtml(item.id)}">
+          <span class="tag ${platform}">${platform === "twitch" ? "Twitch" : "Kick"}</span>
+          <div class="row-text"><strong>${escapeHtml(item.login || item.id)}</strong></div>
+          ${item.expired ? `<span class="state bad">${L("accountExpired")}</span>` : active ? `<span class="state">${L("accountActive")}</span>` : ""}
+          <button class="x" type="button" data-remove="${platform}" data-id="${escapeHtml(item.id)}" aria-label="${L("removeWord")}">×</button>
+        </div>`);
+    }
+  }
+  setHtml($("accounts-list"), rows.join("") || `<p class="empty">${L("accountsEmpty")}</p>`);
+  const rotate = accounts?.rotate || { mode: "all", limit: 1 };
+  const select = $("rotate-mode");
+  const options = [["all", L("rotateAll")], ["campaigns", L("rotateCampaigns")], ["done", L("rotateDone")], ["never", L("rotateNever")]];
+  const html = options.map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("");
+  if (select.__html !== html) {
+    select.__html = html;
+    select.innerHTML = html;
+  }
+  select.value = rotate.mode;
+  $("rotate-limit").classList.toggle("hidden", rotate.mode !== "campaigns");
+  if (document.activeElement !== $("rotate-limit")) $("rotate-limit").value = rotate.limit;
+  $("rotate-hint").textContent = L({ all: "rotateHintAll", campaigns: "rotateHintCampaigns", done: "rotateHintDone" }[rotate.mode] || "rotateHintNever");
+}
+
+// Платформа, для которой сейчас открыто окно входа.
+let addingNow = "";
+
+function applyAccounts(next) {
+  if (!next) return;
+  if ("adding" in next) addingNow = next.adding || "";
+  accounts = next;
+  renderExtras();
+  if (latest) render(latest);
+}
+
+function startAdd(platform) {
+  if (!accounts?.warned) {
+    pendingAdd = platform;
+    $("accounts-confirm").classList.remove("hidden");
+    return;
+  }
+  addingNow = platform;
+  askGoogle(platform).then(() => send({ type: "addAccount", platform }));
+  renderAccounts();
+}
+
+// Просим доступ к странице входа Google: тогда при входе через Google покажется выбор аккаунта.
+// Отказ ничего не ломает, поэтому спрашиваем один раз.
+async function askGoogle() {
+  const origins = ["https://accounts.google.com/*"];
+  try {
+    if (localStorage.getItem("googleAsked") === "no") return;
+    if (await chrome.permissions.contains({ origins })) return;
+    // Отметку ставим только по ответу пользователя: запрос без жеста просто не показывается и повторится.
+    const granted = await chrome.permissions.request({ origins });
+    if (!granted) localStorage.setItem("googleAsked", "no");
+  } catch {
+    // Нет жеста пользователя или API недоступен.
+  }
+}
+
+$("add-twitch").addEventListener("click", () => startAdd("twitch"));
+$("add-kick").addEventListener("click", () => startAdd("kick"));
+$("accounts-confirm-no").addEventListener("click", () => {
+  pendingAdd = "";
+  $("accounts-confirm").classList.add("hidden");
+});
+$("accounts-confirm-yes").addEventListener("click", async () => {
+  $("accounts-confirm").classList.add("hidden");
+  applyAccounts(await send({ type: "setAccountsWarned" }));
+  if (pendingAdd) {
+    const platform = pendingAdd;
+    addingNow = platform;
+    askGoogle(platform).then(() => send({ type: "addAccount", platform }));
+    renderAccounts();
+  }
+  pendingAdd = "";
+});
+
+$("accounts-list").addEventListener("click", async (event) => {
+  const remove = event.target.closest("[data-remove]");
+  if (remove) {
+    applyAccounts(await send({ type: "removeAccount", platform: remove.dataset.remove, id: remove.dataset.id }));
+    return;
+  }
+  const row = event.target.closest("[data-switch]");
+  if (!row) return;
+  // Сессия аккаунта умерла: по клику открываем окно входа, после входа куки обновятся.
+  if (side(row.dataset.switch).list.find((item) => item.id === row.dataset.id)?.expired) {
+    addingNow = row.dataset.switch;
+    const platform = row.dataset.switch;
+    askGoogle(platform).then(() => send({ type: "addAccount", platform }));
+    renderAccounts();
+    return;
+  }
+  if (side(row.dataset.switch).active === row.dataset.id) return;
+  applyAccounts(await send({ type: "switchAccount", platform: row.dataset.switch, id: row.dataset.id }));
+});
+
+$("rotate-mode").addEventListener("change", async (event) => {
+  applyAccounts(await send({ type: "setRotation", patch: { mode: event.target.value } }));
+});
+$("rotate-limit").addEventListener("change", async (event) => {
+  applyAccounts(await send({ type: "setRotation", patch: { limit: Number(event.target.value) } }));
+});
+
+document.body.addEventListener("click", (event) => {
+  const pick = event.target.closest("[data-games-side]");
+  if (pick) {
+    gamesSide = pick.dataset.gamesSide;
+    if (pick.dataset.id) editing[gamesSide] = pick.dataset.id;
+    try {
+      localStorage.setItem("gamesSide", gamesSide);
+    } catch {
+      // Без хранилища выбор просто не запоминается.
+    }
+    filterText = "";
+    $("filter").value = "";
+    renderExtras();
+    if (latest) render(latest);
+    return;
+  }
+  const chip = event.target.closest("[data-edit]");
+  if (!chip) return;
+  editing[chip.dataset.edit] = chip.dataset.id;
+  renderExtras();
+  if (latest) render(latest);
+});
+
+function renderExtras() {
+  renderSideCards();
+  renderPoints();
+  renderHistory();
+  renderAccounts();
+  $("games-accounts").innerHTML = gamesChips();
+  paintGamesHint();
+}
+
+// Куки аккаунтов попапу не нужны: из хранилища берём только то, что показываем.
+function publicSide(raw) {
+  return {
+    active: raw?.active || "",
+    done: raw?.done || 0,
+    list: (raw?.list || []).map((item) => ({
+      id: item.id, login: item.login, whitelist: item.whitelist || [], picked: item.picked || [], points: item.points || [], wishes: item.wishes || [],
+      expired: Boolean(item.expired),
+    })),
+  };
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  // Окно входа открылось или закрылось: обновляем подсказку и список аккаунтов.
+  if (area === "session" && changes.accountAdd) {
+    addingNow = changes.accountAdd.newValue?.platform || "";
+    renderAccounts();
+    send({ type: "getAccounts" }).then(applyAccounts);
+    return;
+  }
+  if (area !== "local") return;
+  if (changes.points?.newValue) {
+    pointsState = changes.points.newValue;
+    renderPoints();
+  }
+  if (changes.side) {
+    sideFarm = changes.side.newValue || {};
+    renderSideCards();
+    if (viewedSide("twitch") && latest) render(latest);
+  }
+  if (changes.kickSide) {
+    kickSideFarm = changes.kickSide.newValue || {};
+    renderSideCards();
+    if (viewedSide("kick") && kickState) renderKick(kickState);
+  }
+  if (changes.kickPoints?.newValue) {
+    kickPointsState = changes.kickPoints.newValue;
+    renderPoints();
+  }
+  if (changes.history?.newValue) {
+    historyList = changes.history.newValue;
+    renderHistory();
+  }
+  if (changes.accounts?.newValue) {
+    const raw = changes.accounts.newValue;
+    accounts = { twitch: publicSide(raw.twitch), kick: publicSide(raw.kick), rotate: raw.rotate || accounts?.rotate, warned: Boolean(raw.warned) };
+    renderExtras();
+  }
+});
+
+send({ type: "getPoints" }).then((value) => { pointsState = value; renderPoints(); });
+send({ type: "getKickPoints" }).then((value) => { kickPointsState = value; renderPoints(); });
+send({ type: "getSide" }).then((value) => { sideFarm = value || {}; renderSideCards(); });
+send({ type: "getKickSide" }).then((value) => { kickSideFarm = value || {}; renderSideCards(); });
+send({ type: "getHistory" }).then((value) => { historyList = value || []; renderHistory(); });
+send({ type: "getAccounts" }).then(applyAccounts);

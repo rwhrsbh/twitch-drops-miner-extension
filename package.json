@@ -1,5 +1,8 @@
 {
   "name": "rust-drops-extension",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/kick.test.mjs tests/accounts.test.mjs tests/points.test.mjs tests/kickpoints.test.mjs tests/side.test.mjs tests/remote.test.mjs"
+  }
 }

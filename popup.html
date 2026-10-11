@@ -42,7 +42,33 @@
           <div class="row-text"><strong id="auto-title"></strong><small id="auto-hint"></small></div>
           <button id="auto" class="switch" type="button" aria-pressed="false" aria-label="Auto"><span class="knob"></span></button>
         </div>
+        <div class="row hidden" id="points-row">
+          <div class="row-text"><strong id="points-label"></strong><small id="points-toggle-hint"></small></div>
+          <button id="points-toggle" class="switch" type="button" aria-pressed="false" aria-label="Points"><span class="knob"></span></button>
+        </div>
         <button id="inventory-2" class="row link" type="button"></button>
+      </div>
+    </section>
+    <section id="accounts" class="sheet">
+      <div class="sheet-head"><h2 id="accounts-title"></h2></div>
+      <p id="accounts-hint" class="hint"></p>
+      <p id="accounts-adding" class="status wait hidden"></p>
+      <div id="accounts-confirm" class="picker confirm hidden">
+        <p id="accounts-confirm-text"></p>
+        <div class="confirm-actions">
+          <button id="accounts-confirm-no" type="button"></button>
+          <button id="accounts-confirm-yes" type="button" class="primary"></button>
+        </div>
+      </div>
+      <div class="picker">
+        <div id="accounts-list"></div>
+        <button id="add-twitch" class="row link plus" type="button"></button>
+        <button id="add-kick" class="row link plus" type="button"></button>
+        <div class="row rotate">
+          <div class="row-text"><strong id="rotate-title"></strong><small id="rotate-hint"></small></div>
+          <select id="rotate-mode"></select>
+          <input id="rotate-limit" type="number" min="1" max="50" step="1">
+        </div>
       </div>
     </section>
     <section id="black" class="sheet">
@@ -60,14 +86,18 @@
     <section id="watch" class="hero"></section>
     <section id="kick-watch" class="hero"></section>
   </div>
+  <div id="duo-more" class="duo hidden"></div>
 
   <nav id="tabs" class="tabs">
     <button type="button" data-tab="twitch"><span>Twitch</span> <em id="tab-twitch-n"></em></button>
     <button type="button" data-tab="kick"><span>Kick</span> <em id="tab-kick-n"></em></button>
+    <button type="button" data-tab="points" class="hidden"><span id="tab-points-label">Points</span> <em id="tab-points-n"></em></button>
     <button type="button" data-tab="games"><span id="tab-games-label">Games</span> <em id="tab-games-n"></em></button>
+    <button type="button" data-tab="history"><span id="tab-history-label">History</span></button>
   </nav>
 
   <div id="panel-twitch" class="panel">
+    <div id="twitch-accounts" class="acc-rows"></div>
     <p id="status" class="status"></p>
     <section class="sheet">
       <div class="sheet-head"><h2 id="farm-title">Farming</h2></div>
@@ -76,8 +106,34 @@
   </div>
 
   <div id="panel-kick" class="panel hidden">
+    <div id="kick-accounts" class="acc-rows"></div>
     <p id="kick-status" class="status"></p>
     <div id="kick-list"></div>
+  </div>
+
+  <div id="panel-points" class="panel hidden">
+    <div class="langs sides" id="points-sides">
+      <button type="button" data-side="twitch">Twitch</button>
+      <button type="button" data-side="kick">Kick</button>
+    </div>
+    <div id="points-accounts" class="acc-rows"></div>
+    <section class="sheet">
+      <div class="sheet-head"><h2 id="points-title"></h2><span id="points-count"></span></div>
+      <p id="points-hint" class="hint"></p>
+      <p id="points-off" class="status wait hidden"></p>
+      <div class="picker">
+        <label class="search"><input id="points-filter" type="search" autocomplete="off"></label>
+        <div id="points-results"></div>
+        <div id="points-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="panel-history" class="panel hidden">
+    <section class="sheet">
+      <div class="sheet-head"><h2 id="history-title"></h2><button id="history-clear" class="mini" type="button"></button></div>
+      <div class="picker"><div id="history-list"></div></div>
+    </section>
   </div>
 
   <div id="panel-games" class="panel hidden">
@@ -86,6 +142,8 @@
         <h2 id="games-title">Games</h2>
         <span id="game-count"></span>
       </div>
+      <p id="games-hint" class="hint"></p>
+      <div id="games-accounts" class="acc-rows"></div>
       <div class="picker">
         <label class="search"><input id="filter" type="search" placeholder="Add a game" autocomplete="off"></label>
         <div id="games"></div>

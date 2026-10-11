@@ -1,0 +1,53 @@
+name: Twitch GQL hashes
+
+# Проверяет хэши persisted-query Twitch и сам чинит remote/config.json.
+# Расширения читают этот файл, поэтому починка доходит до пользователей без новой версии.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: hashes
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check and fix hashes
+        id: fix
+        run: |
+          set +e
+          node tools/update-hashes.mjs 2>&1 | tee hashes.log
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+      - name: Commit
+        run: |
+          if [ -n "$(git status --porcelain remote/config.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add remote/config.json
+            git commit -m "Update Twitch GQL hashes"
+            git push
+          fi
+      - name: Open an issue when a hash has no fix
+        if: steps.fix.outputs.code == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Twitch GQL hash is dead and no fix was found"
+          if [ -z "$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number')" ]; then
+            gh issue create --title "$title" --body-file hashes.log
+          fi
+      - name: Fail on script errors
+        if: steps.fix.outputs.code != '0' && steps.fix.outputs.code != '2'
+        run: exit 1

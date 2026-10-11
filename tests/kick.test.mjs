@@ -234,12 +234,20 @@ test("manual mode farms only picked game", async () => {
   kick.stopWatch();
 });
 
-test("twitch whitelist name counts as picked on Kick", async () => {
+test("twitch whitelist is a separate list: it does not pick the game on Kick", async () => {
   await resetAsync(); net["drops/campaigns"] = two();
   await settings.writeSettings({ autoAll: false });
-  store.local.state = { whitelist: ["77"], games: [{ id: "77", name: "Alpha" }] };
+  store.local.state = { whitelist: ["77", "78"], games: [{ id: "77", name: "Alpha" }], picks: { 78: { name: "Gone" } } };
   const s = await kick.kickTick();
-  assert.deepEqual(s.queue.map((r) => r.game), ["Alpha"]);
+  assert.deepEqual(s.queue.map((r) => r.game), []);
+  // Названия для разового переноса в список Kick берутся и из запомненных игр без кампании.
+  assert.deepEqual(await kick.twitchPickedNames(), { names: ["Alpha", "Gone"], missing: [] });
+  // Игра без кампании и без запомненного названия: перенос считается незаконченным и повторится.
+  store.local.state = { whitelist: ["77", "99"], games: [{ id: "77", name: "Alpha" }] };
+  assert.deepEqual(await kick.twitchPickedNames(), { names: ["Alpha"], missing: ["99"] });
+  // Повтор смотрит только на оставшиеся id: то, что выбрано в Twitch позже, на Kick уже не переносится.
+  store.local.state = { whitelist: ["77", "99", "55"], games: [{ id: "77", name: "Alpha" }, { id: "55", name: "Later" }, { id: "99", name: "Found" }] };
+  assert.deepEqual(await kick.twitchPickedNames(["99"]), { names: ["Found"], missing: [] });
   kick.stopWatch();
 });
 

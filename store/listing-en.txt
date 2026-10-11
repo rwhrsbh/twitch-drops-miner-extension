@@ -1,4 +1,4 @@
-Drops farms Twitch and Kick drops at the same time. It does not play the stream. On Twitch it sends the same minute-watched pings as the Twitch player; on Kick it keeps the same viewer connection the Kick site uses. Progress is read from each platform, and finished drops are claimed automatically.
+Drops farms Twitch and Kick drops at the same time. It does not play the stream. On Twitch it requests the stream playlist without downloading or playing video; on Kick it keeps the same viewer connection the Kick site uses. Progress is read from each platform, and finished drops are claimed automatically.
 
 - Sign-in uses the Twitch and Kick sessions already open in this browser. The cookies are read locally. Your password is never stored.
 - Pick the games you want, or turn on "Mine all available campaigns". In that mode your games go first, then every other linked campaign. A blacklist keeps games you never want farmed.
@@ -6,6 +6,8 @@ Drops farms Twitch and Kick drops at the same time. It does not play the stream.
 - If a streamer goes offline or switches to another game, the miner moves to someone who is live in that game.
 - If progress stops without an error, the miner changes channel, and if that does not help, it opens a pinned muted tab with the real player until minutes count again.
 - Click any drop in the popup to farm it next.
+- Several accounts: add more Twitch or Kick accounts and they farm in parallel, each with its own games; taking turns is available too. To claim drops or take turns the extension swaps site cookies, so the browser may be signed in as another saved account.
+- Claim history shows what was claimed and on which account.
 - The popup shows both miners side by side and is available in English and Russian.
 
 The Twitch farming approach follows TwitchDropsMiner by DevilXD. The Kick protocol follows kickautodrops. Support for this extension is not guaranteed.
