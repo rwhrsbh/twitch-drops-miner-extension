@@ -1629,6 +1629,12 @@ function caseRow(row, account) {
   return `<div class="case">${art}<span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(bits.join(" · "))}</small>${bar}</span>${button}</div>`;
 }
 
+// У аккаунта браузера может не быть имени: показываем «В браузере», а не «current».
+function accountLabel(id, entry) {
+  if (entry?.login) return entry.login;
+  return id === "current" ? L("browserAs") : id;
+}
+
 function renderCases(state) {
   if (state) casesState = state;
   const all = casesState?.accounts || {};
@@ -1648,7 +1654,7 @@ function renderCases(state) {
   const blocks = ids.map((id) => {
     const rows = accounts[id].items || [];
     // Заголовок аккаунта нужен, только когда аккаунтов несколько.
-    const head = ids.length > 1 ? `<div class="acc-cap">${escapeHtml(accounts[id].login || id)}</div>` : "";
+    const head = ids.length > 1 ? `<div class="acc-cap">${escapeHtml(accountLabel(id, accounts[id]))}</div>` : "";
     return head + (rows.length
       ? rows.map((row) => caseRow(row, id)).join("")
       : `<p class="empty">${escapeHtml(L("casesEmpty"))}</p>`);

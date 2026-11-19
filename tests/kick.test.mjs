@@ -167,10 +167,12 @@ test("кейс: дроп без живых каналов не рвёт кейс
 test("кейс: выбор идёт по проверенному живому аккаунту, а не по state.user", async () => {
   await resetAsync();
   // state.user устарел (alice), но проход кейсов уже проверил, что живой — B.
-  store.local.kick = { enabled: true, user: "alice" };
+  // Логин проверялся раньше, чем проход кейсов записал живой аккаунт: верим liveId.
+  store.local.kick = { enabled: true, user: "alice", userAt: Date.now() - 60 * 1000 };
   store.local.kickCases = {
     enabled: true,
     liveId: "B",
+    liveIdAt: Date.now(),
     accounts: {
       A: { login: "alice", items: [{ name: "Old Case", status: "in_progress", progress: 1, threshold: 999 }] },
       B: { login: "bob", items: [{ name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 }] },
@@ -178,6 +180,23 @@ test("кейс: выбор идёт по проверенному живому �
   };
   const row = await kick.kickCaseNeed();
   assert.equal(row.name, "Sunset Reward Case", "берём кейс живого аккаунта");
+});
+
+test("кейс: свежий проверенный логин важнее устаревшего liveId", async () => {
+  await resetAsync();
+  // Проход кейсов записал A, а майнер только что проверил: в браузере bob (B).
+  store.local.kick = { enabled: true, user: "bob", userAt: Date.now() };
+  store.local.kickCases = {
+    enabled: true,
+    liveId: "A",
+    liveIdAt: Date.now() - 60 * 1000,
+    accounts: {
+      A: { login: "alice", items: [{ name: "Old Case", status: "in_progress", progress: 1, threshold: 999 }] },
+      B: { login: "bob", items: [{ name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 }] },
+    },
+  };
+  const row = await kick.kickCaseNeed();
+  assert.equal(row.name, "Sunset Reward Case", "liveId прошлого прохода не перебивает свежий логин");
 });
 
 test("кейс: просроченный или не про минуты не фармим", async () => {
