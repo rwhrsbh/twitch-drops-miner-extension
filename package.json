@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --experimental-test-module-mocks --test tests/kick.test.mjs tests/accounts.test.mjs tests/points.test.mjs tests/kickpoints.test.mjs tests/side.test.mjs tests/remote.test.mjs tests/client.test.mjs tests/kickcases.test.mjs tests/solo.test.mjs tests/solo-twitch.test.mjs tests/ui.test.mjs"
+    "test": "node --experimental-test-module-mocks --test tests/kick.test.mjs tests/accounts.test.mjs tests/points.test.mjs tests/kickpoints.test.mjs tests/side.test.mjs tests/remote.test.mjs tests/client.test.mjs tests/kickcases.test.mjs tests/solo.test.mjs tests/solo-twitch.test.mjs tests/rotation.test.mjs tests/ui.test.mjs"
   }
 }

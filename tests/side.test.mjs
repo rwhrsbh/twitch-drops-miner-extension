@@ -329,6 +329,33 @@ test("kick: аккаунт без выбранных игр всё равно с
   assert.equal(sockets.length, 1);
 });
 
+test("kick: появившийся дроп важнее кейс-эфира у побочного аккаунта", async () => {
+  await reset();
+  users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  let out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.case, true);
+  // Дроп снова доступен и канал в эфире: кейс-эфир уступает.
+  users["2|b"].progress = {};
+  out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.dropId, "r1");
+  assert.ok(!out["2"].watching.case);
+});
+
+test("kick: появившийся дроп важнее соло-эфира у побочного аккаунта", async () => {
+  await reset();
+  store.local.settings.soloKick = "Apex";
+  store.local.kick = { enabled: true, user: "main", soloGame: "Apex", soloCategory: 1 };
+  let out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.solo, true, "эфир ради соло-игры");
+  // У выбранной игры появилась кампания и живой канал.
+  store.local.settings.soloKick = "Rust";
+  out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.dropId, "r1");
+});
+
 test("kick: кейса нет и фармить нечего — сокет закрыт", async () => {
   await reset();
   users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };

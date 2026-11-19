@@ -152,14 +152,12 @@ test("tick: готовый кейс открывается, заголовки �
   assert.equal(sunsetEntry.name, "Sunset Reward Case · legendary");
 });
 
-test("tick: выключенное открытие только читает список", async () => {
+test("tick: выключенный тумблер не опрашивает Kick", async () => {
   reset();
-  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim") ? { data: {} } : { data: [{ ...sunset, status: "claimable" }] });
   store.local.kickCases = { enabled: false };
   const state = await cases.kickCasesTick({ force: true });
-  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 0);
-  assert.equal(state.accounts.current.items.length, 1);
-  assert.equal(state.accounts.current.items[0].status, "claimable");
+  assert.equal(calls.length, 0, "ни одного запроса за выключенной функцией");
+  assert.deepEqual(state.accounts, {});
 });
 
 test("tick: неудачный клейм запоминается и не повторяется сразу", async () => {
@@ -298,12 +296,13 @@ test("второй аккаунт открывает свои кейсы сво�
 
 test("кнопка «Открыть» не открывает кейс чужого аккаунта", async () => {
   reset();
-  net["gamification/challenges"] = { data: [{ ...sunset, status: "claimable" }] };
-  await cases.setKickCasesEnabled(false);
-  await cases.kickCasesTick({ force: true });
-  const before = calls.filter((call) => call.url.includes("/claim")).length;
+  // Состояние с готовым кейсом уже есть, а аккаунт, к которому относилась строка, пропал.
+  store.local.kickCases = {
+    enabled: true,
+    accounts: { current: { login: "me", items: [{ ...sunset, status: "claimable", key: cases.caseKey(sunset) }] } },
+  };
   const state = await cases.openKickCase(sunset.id, "нет-такого-аккаунта");
-  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, before, "клейма не было");
+  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 0, "клейма не было");
   assert.equal(state.accounts.current.items[0].status, "claimable");
 });
 
