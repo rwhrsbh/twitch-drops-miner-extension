@@ -407,6 +407,33 @@ test("режим «только вручную» не стирает отмет�
   assert.equal(state.accounts.k2.opened["x|1"].at, 1);
 });
 
+test("сервер снова предлагает кейс, отметка старая — открываем заново", async () => {
+  reset();
+  const row = { ...sunset, status: "claimable" };
+  store.local.kickCases = {
+    enabled: true,
+    accounts: { current: { login: "me", items: [row], opened: { [cases.caseKey(row)]: { at: Date.now() - 11 * 60 * 1000, rarity: "rare" } }, failed: {}, checkedAt: 0 } },
+  };
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { data: { winner: { rarity: "epic" } } }
+    : { data: [row] });
+  const state = await cases.kickCasesTick({ force: true });
+  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 1, "клейм по новой попытке");
+  assert.equal(state.accounts.current.items[0].rarity, "epic");
+});
+
+test("свежая отметка не даёт открыть кейс повторно", async () => {
+  reset();
+  const row = { ...sunset, status: "claimable" };
+  store.local.kickCases = {
+    enabled: true,
+    accounts: { current: { login: "me", items: [row], opened: { [cases.caseKey(row)]: { at: Date.now(), rarity: "rare" } }, failed: {}, checkedAt: 0 } },
+  };
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim") ? { data: { winner: { rarity: "epic" } } } : { data: [row] });
+  await cases.kickCasesTick({ force: true });
+  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 0, "задержка сервера не превращается в двойной клейм");
+});
+
 test("переключатель сохраняется", async () => {
   reset();
   const off = await cases.setKickCasesEnabled(false);

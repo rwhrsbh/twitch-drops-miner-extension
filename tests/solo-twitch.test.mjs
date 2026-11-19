@@ -117,6 +117,30 @@ test("solo: у игры нет кампаний — берём сохранён�
   assert.ok(calls.some((call) => call.what === "directory" && call.slug === "rust"), "каталог запрошен по slug");
 });
 
+test("solo: смена аккаунта не теряет выбранную игру", async (t) => {
+  summaries = [];
+  const miner = await boot(t, { soloTwitch: "111" });
+  store.local.state = {
+    enabled: true, lang: "ru", soloGameId: "111", soloGameName: "Rust", soloGameSlug: "rust", queue: [],
+  };
+  await miner.resetForAccount([]);
+  // resetForAccount ничего не возвращает: смотрим, что записалось в состояние.
+  assert.equal(store.local.state.soloGameName, "Rust");
+  assert.equal(store.local.state.soloGameSlug, "rust");
+});
+
+test("solo: клик по дропу другой игры объясняет, почему он не берётся", async (t) => {
+  summaries = [];
+  const miner = await boot(t, { soloTwitch: "111" });
+  store.local.state = {
+    enabled: true, lang: "ru", soloGameName: "Rust",
+    queue: [{ id: "d9", name: "Ward", game: "Dota 2", gameId: "222", required: 30, current: 5, claimed: false }],
+  };
+  const state = await miner.watchDrop("d9");
+  assert.match(state.message, /soloIgnored/, "пользователь видит, почему клик не сработал");
+  assert.equal(state.preferDropId, undefined, "выбор не поставлен");
+});
+
 test("solo: готовый дроп другой игры забирается, хоть и не смотрится", async (t) => {
   summaries = [
     campaign("c1", rust, [drop("r1", "Skin", 60, 10)]),
