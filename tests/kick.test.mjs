@@ -145,6 +145,25 @@ test("кейс: выключенный тумблер — ради кейса н
   assert.equal(sockets.length, 0);
 });
 
+test("кейс: дроп без живых каналов не рвёт кейс-сокет", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  net["api/v2/channels/"] = { id: 5, livestream: { id: 99, categories: [{ id: 13 }], viewer_count: 10 } };
+  store.local.kickCases = { enabled: true, accounts: { current: { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  let s = await kick.kickTick();
+  assert.equal(s.watching.case, true);
+  assert.equal(sockets.length, 1);
+  // Дроп снова доступен, но каналов в эфире нет: смотрим дальше ради кейса тем же сокетом.
+  net["drops/progress"] = { data: [] };
+  net["livestreams"] = { data: { livestreams: [] } };
+  s = await kick.kickTick();
+  assert.equal(s.watching.case, true);
+  assert.equal(sockets.length, 1, "новый сокет не открывался");
+  kick.stopWatch();
+});
+
 test("кейс: дропов нет и кейса нет — стоим, как раньше", async () => {
   await resetAsync();
   net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };

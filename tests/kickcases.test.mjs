@@ -269,9 +269,10 @@ test("401 не долбит Kick каждые 90 секунд", async () => {
   net["gamification/challenges"] = { status: 401, body: { message: "unauthorized" } };
   const first = await cases.kickCasesTick({ force: true });
   assert.match(first.accounts.current.error, /HTTP 401/);
+  assert.ok(first.accounts.current.checkedAt > Date.now() + 60 * 1000, "следующая попытка отложена на 10 минут");
   const before = calls.length;
   await cases.kickCasesTick();
-  assert.equal(calls.length, before, "следующая попытка отложена");
+  assert.equal(calls.length, before);
 });
 
 test("переключатель сохраняется", async () => {

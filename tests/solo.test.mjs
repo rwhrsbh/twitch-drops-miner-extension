@@ -149,6 +149,23 @@ test("kick solo: в сокет уходит числовой livestream id из 
   kick.stopWatch();
 });
 
+test("kick solo: дроп игры без живого канала — смотрим кейс на любом эфире", async () => {
+  resetKick();
+  // В категории игры пусто, а «любой эфир» найти можно.
+  net["livestreams"] = (init, url) => (String(url).includes("category_id")
+    ? { data: { livestreams: [] } }
+    : { data: { livestreams: [{ id: "01a0-uuid", channel: { id: 5, slug: "streamer" } }] } });
+  net["api/v2/channels/"] = { id: 5, livestream: { id: 99, categories: [{ id: 1 }], viewer_count: 10 } };
+  store.local.kickCases = { enabled: true, accounts: { current: { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  const state = await kick.kickTick();
+  assert.equal(state.watching.case, true);
+  assert.equal(state.watching.login, "streamer");
+  assert.equal(sockets.length, 1);
+  kick.stopWatch();
+});
+
 test("kick solo: без категории и без кампаний — честно «нет канала»", async () => {
   resetKick();
   net["drops/campaigns"] = { data: [] };
