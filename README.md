@@ -14,6 +14,16 @@ Device-code login is not used. That flow in TwitchDropsMiner was broken at the t
 
 Sign in to kick.com in the same browser. The `session_token` cookie is picked up automatically; nothing to paste. Kick farms in parallel with Twitch. Each Kick account has its own game list (Priority tab), matched by game name; exclusive-channel drops go first. Protocol (viewer token, WebSocket handshake/ping, `tracking.user.watch.livestream`, claim) follows [kickautodrops](https://github.com/PBA4EVSKY/kickautodrops) and [GrubDrops](https://github.com/JourneyDocker/GrubDrops). A `declarativeNetRequest` rule sets `Origin`/`Referer` to kick.com for those requests.
 
+## Kick cases
+
+Cases are not drops and never appear in the Drops list. They are Kick's own gamification rewards — the Daily Reward and promos like the Sunset Reward Case — served from `GET web.kick.com/api/v1/gamification/challenges` and opened with `POST web.kick.com/api/v1/gamification/challenges/{id}/claim` (the answer carries the card you won: rarity, `card_url`, `thumbnail_url`). The watch time that unlocks a case is counted by Kick from the same viewing the drops use, so a case needs nothing extra: the extension reads the list, shows every case with its minutes in the Kick tab, and opens whatever is ready. The claim for the current day is remembered by challenge id and the end of its window, so a case is never opened twice. A switch in the settings turns the automatic opening off; the "Open" button in the case list keeps working.
+
+Cases keep the miner busy when there is nothing left to farm: if no drop of the account is earnable and its case still needs minutes, the miner watches any live stream on that account, so the case keeps filling instead of idling. The same applies to every account farming in parallel, each with its own case progress and its own socket. In the one-game mode this is the last resort, used when that game has no live stream at all.
+
+Cases are opened for every Kick account, not just the one signed in to the browser: the signed-in account uses its live cookie, the saved accounts use their own session token and send no browser cookies, so one account's request cannot be answered as another's. The case list in the popup shows an account's cases under its name when there is more than one account.
+
+Checked live on 19 November 2026: the list returns the Daily Reward (`claimed`) and the Sunset Reward Case (`in_progress`, 150 of 180 minutes), the claim answer is `{challenge_id, reveal_type, roulette, winner}`, and a claim on an already claimed reward answers 200 with the same winner instead of granting another one. The minutes came from the background WebSocket viewing the extension itself uses for drops: the case went from 150 to 168 over about 20 minutes while nothing but the miner was watching.
+
 ## Self-repair
 
 Twitch changes the hashes of its persisted GraphQL queries now and then; an old hash starts answering `PersistedQueryNotFound`. This used to need a new release. Now:
@@ -28,6 +38,18 @@ Not collected in this version: the Points tab and the settings switch are hidden
 
 - `kickPoints`: works (Kick credits points for the same background WebSocket "viewing" that drops use; balance and daily rewards included; endpoints follow atalaydenknalbant/twitch-kick-points-miner). Hidden for now to keep the popup simple.
 - `twitchPoints`: checked in October 2026, Twitch credits points and offers bonuses only to a real player. Minute-watched pings, playlist requests and forged player events earn nothing, and the extension never opens video for points.
+
+## One game non-stop
+
+Settings has a "one game" picker for Twitch and one for Kick. When a game is chosen the miner farms that game and nothing else, in this order:
+
+1. the game's drops, on their channels;
+2. a live channel of the game with drops enabled, so the minutes still count somewhere;
+3. any live stream of that game.
+
+Twitch reaches step 3 through the game directory, Kick through the game's category, remembered from its last campaign. The picked-games list, auto mode and the blacklist stop mattering while this is on; switch the picker back to "Off" to return to the usual queue. On Kick, minutes watched this way still count for cases and channel points.
+
+The mode covers every account, including the ones farming in parallel. Kick accounts use their own token as usual. A Twitch account farming in parallel cannot browse a game directory without an integrity token, so it takes the channel the main miner settled on (they farm the same game, the setting is global) and keeps it alive itself; the case is the same for the catalog of campaigns — the solo game is added to it on purpose.
 
 ## Accounts
 

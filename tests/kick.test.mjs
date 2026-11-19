@@ -116,6 +116,32 @@ test("claims finished reward", async () => {
   kick.stopWatch();
 });
 
+test("кейс: нечего фармить, но кейсу нужны минуты — смотрю любой эфир", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  net["api/v2/channels/"] = { id: 5, livestream: { id: 99, categories: [{ id: 13 }], viewer_count: 10 } };
+  store.local.kickCases = { enabled: true, accounts: { current: { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  const s = await kick.kickTick();
+  assert.equal(s.phase, "watching");
+  assert.equal(s.watching.case, true);
+  assert.equal(s.watching.name, "Sunset Reward Case");
+  assert.equal(s.watching.current, 40);
+  assert.equal(s.watching.required, 180);
+  assert.equal(sockets.length, 1);
+  kick.stopWatch();
+});
+
+test("кейс: дропов нет и кейса нет — стоим, как раньше", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  const s = await kick.kickTick();
+  assert.equal(s.phase, "all-claimed");
+  assert.equal(s.watching, null);
+  assert.equal(sockets.length, 0);
+});
+
 test("blacklist filters campaign", async () => {
   await resetAsync();
   await settings.writeSettings({ blacklist: ["rust"] });
