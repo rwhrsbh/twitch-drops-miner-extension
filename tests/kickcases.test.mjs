@@ -221,6 +221,20 @@ test("режим «только вручную»: кейсы только у а�
   assert.ok(!calls.some((call) => call.init.headers?.Authorization === "Bearer tok2"), "чужой аккаунт не трогали");
 });
 
+test("переключатель и проход одновременно не открывают кейс дважды", async () => {
+  reset();
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { data: { winner: { rarity: "rare" } } }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  await Promise.all([
+    cases.setKickCasesEnabled(true),
+    cases.kickCasesTick({ force: true }),
+  ]);
+  await cases.kickCasesTick({ force: true });
+  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 1, "один клейм");
+  assert.equal((store.local.history || []).length, 1, "одна запись в истории");
+});
+
 test("кнопка «Открыть» не клеймит уже открытый кейс", async () => {
   reset();
   net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
