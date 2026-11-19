@@ -166,6 +166,33 @@ test("kick solo: дроп игры без живого канала — смот
   kick.stopWatch();
 });
 
+test("kick solo: появившийся дроп важнее уже запущенного эфира", async () => {
+  resetKick();
+  net["drops/campaigns"] = { data: [] };
+  store.local.kick = { enabled: true, soloCategory: 13, soloGame: "Rust" };
+  let state = await kick.kickTick();
+  assert.equal(state.watching.solo, true);
+  // Появилась кампания той же игры с дропом, канал в эфире.
+  net["drops/campaigns"] = { data: [campaign()] };
+  state = await kick.kickTick();
+  assert.equal(state.watching.dropId, "r1", "дроп важнее соло-эфира");
+  assert.ok(!state.watching.solo);
+  kick.stopWatch();
+});
+
+test("kick solo: смена игры не продолжает фармить старую категорию", async () => {
+  resetKick();
+  net["drops/campaigns"] = { data: [] };
+  store.local.settings = { soloKick: "Apex" };
+  // В памяти осталась Rust из прошлого прохода, кампаний Apex нет.
+  store.local.kick = { enabled: true, soloCategory: 13, soloGame: "Rust" };
+  const state = await kick.kickTick();
+  assert.equal(state.watching, null);
+  assert.equal(state.soloGame, "Apex");
+  assert.equal(state.soloCategory, 0);
+  assert.equal(sockets.length, 0);
+});
+
 test("kick solo: без категории и без кампаний — честно «нет канала»", async () => {
   resetKick();
   net["drops/campaigns"] = { data: [] };

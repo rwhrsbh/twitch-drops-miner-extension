@@ -164,6 +164,23 @@ test("кейс: дроп без живых каналов не рвёт кейс
   kick.stopWatch();
 });
 
+test("кейс: просроченный или не про минуты не фармим", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  store.local.kickCases = { enabled: true, accounts: { current: { items: [
+    { name: "Old Case", status: "in_progress", progress: 40, threshold: 180, endsAt: Date.now() - 1000 },
+  ] } } };
+  let s = await kick.kickTick();
+  assert.equal(s.phase, "all-claimed");
+  assert.equal(sockets.length, 0);
+  store.local.kickCases.accounts.current.items = [
+    { name: "Watch Streams", status: "in_progress", progress: 1, threshold: 5, type: "watch_streams" },
+  ];
+  s = await kick.kickTick();
+  assert.equal(s.phase, "all-claimed");
+  assert.equal(sockets.length, 0);
+});
+
 test("кейс: дропов нет и кейса нет — стоим, как раньше", async () => {
   await resetAsync();
   net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };

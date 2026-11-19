@@ -164,12 +164,75 @@ test("tick: выключенное открытие только читает с
 
 test("tick: неудачный клейм запоминается и не повторяется сразу", async () => {
   reset();
-  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim") ? {} : { data: [{ ...sunset, status: "claimable" }] });
-  net["/claim"] = { status: 422, body: { message: "too early" } };
+  // Настоящий отказ, а не пустой успешный ответ: иначе тест проверял бы не то.
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { status: 422, body: { message: "too early" } }
+    : { data: [{ ...sunset, status: "claimable" }] });
   const first = await cases.kickCasesTick({ force: true });
   assert.equal(Object.keys(first.accounts.current.failed).length, 1);
+  assert.match(first.accounts.current.claimError, /HTTP 422/);
   await cases.kickCasesTick({ force: true });
   assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 1);
+});
+
+test("клейм без карточки — успех, а не ошибка", async () => {
+  reset();
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { data: { challenge_id: sunset.id } }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  const state = await cases.kickCasesTick({ force: true });
+  assert.deepEqual(Object.keys(state.accounts.current.failed), []);
+  assert.equal(state.accounts.current.items[0].status, "claimed");
+  assert.equal((store.local.history || []).length, 1);
+});
+
+test("ключ без окна не запирает ежедневную награду навсегда", () => {
+  assert.match(cases.caseKey({ id: "daily-1" }), /^daily-1\|day:\d{4}-\d{2}-\d{2}$/);
+  assert.equal(cases.caseKey({ id: "x", endsAt: 123 }), "x|123");
+});
+
+test("просроченный кейс не открываем, не-минутный не фармим", () => {
+  assert.equal(cases.isClaimable({ status: "claimable", threshold: 60, progress: 60, endsAt: Date.now() - 1000 }), false);
+  assert.equal(cases.needsMinutes({ status: "in_progress", threshold: 60, progress: 10, endsAt: Date.now() - 1000 }), false);
+  assert.equal(cases.needsMinutes({ status: "in_progress", threshold: 60, progress: 10, type: "watch_streams" }), false);
+  assert.equal(cases.needsMinutes({ status: "in_progress", threshold: 60, progress: 10 }), true);
+});
+
+test("выключенный Kick не трогает кейсы", async () => {
+  reset();
+  store.local.kick = { enabled: false, user: "me" };
+  const state = await cases.kickCasesTick({ force: true });
+  assert.deepEqual(state.accounts, {});
+  assert.equal(calls.length, 0);
+});
+
+test("режим «только вручную»: кейсы только у аккаунта браузера", async () => {
+  reset();
+  store.local.accounts = {
+    kick: { active: "k1", list: [{ id: "k1", login: "one" }, { id: "k2", login: "two" }] },
+    twitch: { active: "", list: [] },
+    rotate: { mode: "never", limit: 1 },
+  };
+  store.local.accountCookies = {
+    kick: { k1: [{ name: "session_token", value: "tok1" }], k2: [{ name: "session_token", value: "tok2" }] },
+    twitch: {},
+  };
+  net["gamification/challenges"] = { data: [{ ...sunset, status: "in_progress" }] };
+  const state = await cases.kickCasesTick({ force: true });
+  assert.deepEqual(Object.keys(state.accounts), ["k1"]);
+  assert.ok(!calls.some((call) => call.init.headers?.Authorization === "Bearer tok2"), "чужой аккаунт не трогали");
+});
+
+test("кнопка «Открыть» не клеймит уже открытый кейс", async () => {
+  reset();
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { data: { winner: { rarity: "rare" } } }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  await cases.kickCasesTick({ force: true });
+  const before = calls.filter((call) => call.url.includes("/claim")).length;
+  const state = await cases.openKickCase(sunset.id, "current");
+  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, before);
+  assert.equal(state.accounts.current.items[0].status, "claimed");
 });
 
 test("tick: 90 секунд между проходами, force игнорирует паузу", async () => {

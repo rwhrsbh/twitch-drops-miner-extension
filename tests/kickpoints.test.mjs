@@ -196,6 +196,15 @@ test("ежедневная награда забирается один раз �
   assert.equal(rows[0].account, "me");
 });
 
+test("ежедневная награда забирается, когда кейсов ещё нет (апгрейд с 1.7.1)", async () => {
+  await reset();
+  await history.clearHistory();
+  delete store.local.kickCases;
+  challenges = [{ id: "c1", status: "claimable", name: "Daily Reward", window: { ends_at: "2026-10-11" } }];
+  await points.kickPointsTick();
+  assert.deepEqual(claimed, ["c1"], "без прохода кейсов награду забирает этот модуль");
+});
+
 test("нет входа в Kick: сокеты закрываются", async () => {
   await reset();
   store.local.kickPoints = { channels: pick("one") };

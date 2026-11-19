@@ -20,6 +20,8 @@ Cases are not drops and never appear in the Drops list. They are Kick's own gami
 
 Cases keep the miner busy when there is nothing left to farm: if no drop of the account is earnable and its case still needs minutes, the miner watches any live stream on that account, so the case keeps filling instead of idling. The same applies to every account farming in parallel, each with its own case progress and its own socket. In the one-game mode this is the last resort, used when that game has no live stream at all.
 
+Automatic opening is on by default and stops with the Kick switch: with Kick mining turned off the extension makes no Kick requests at all. In the "Never" rotation mode (accounts change only by hand) cases are handled for the account signed in to the browser only; in the other modes every saved account is served.
+
 Cases are opened for every Kick account, not just the one signed in to the browser: the signed-in account uses its live cookie, the saved accounts use their own session token and send no browser cookies, so one account's request cannot be answered as another's. The case list in the popup shows an account's cases under its name when there is more than one account.
 
 Checked live on 19 November 2026: the list returns the Daily Reward (`claimed`) and the Sunset Reward Case (`in_progress`, 150 of 180 minutes), the claim answer is `{challenge_id, reveal_type, roulette, winner}`, and a claim on an already claimed reward answers 200 with the same winner instead of granting another one. The minutes came from the background WebSocket viewing the extension itself uses for drops: the case went from 150 to 168 over about 20 minutes while nothing but the miner was watching.
