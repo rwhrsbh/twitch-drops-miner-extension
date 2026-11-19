@@ -1569,10 +1569,11 @@ let casesState = null;
 const soloOpen = { twitch: false, kick: false };
 const soloQuery = { twitch: "", kick: "" };
 
+// [кнопка, подпись, панель, поиск, список, картинка выбранной игры]
 function soloIds(platform) {
   return platform === "kick"
-    ? ["solo-kick-pick", "solo-kick-value", "solo-kick-find", "solo-kick-filter", "solo-kick-list"]
-    : ["solo-twitch-pick", "solo-twitch-value", "solo-twitch-find", "solo-twitch-filter", "solo-twitch-list"];
+    ? ["solo-kick-pick", "solo-kick-value", "solo-kick-find", "solo-kick-filter", "solo-kick-list", "solo-kick-art"]
+    : ["solo-twitch-pick", "solo-twitch-value", "solo-twitch-find", "solo-twitch-filter", "solo-twitch-list", "solo-twitch-art"];
 }
 
 function soloSaved(platform) {
@@ -1589,6 +1590,7 @@ function soloOptions(platform) {
       rows.set(name, {
         id: name,
         name,
+        image: game?.image || "",
         categoryId: Number(game?.categoryId) || 0,
         meta: gameMeta({ ...game, kickOnly: true, id: `k:${name}` }),
       });
@@ -1607,21 +1609,23 @@ function soloOptions(platform) {
   } else {
     for (const game of latest?.games || []) {
       const id = String(game?.id || "").trim();
-      if (id) rows.set(id, { id, name: String(game.name || id), meta: gameMeta(game) });
+      if (id) rows.set(id, { id, name: String(game.name || id), image: game.image || "", meta: gameMeta(game) });
     }
     // То же для Twitch: выбранные в Priority игры видны здесь и без кампаний.
     const ids = editsLive("twitch") ? latest?.whitelist || [] : targetAccount("twitch")?.whitelist || [];
     const picks = latest?.picks || {};
     for (const raw of ids) {
       const id = String(raw || "").trim();
-      if (id && !rows.has(id)) rows.set(id, { id, name: picks[id]?.name || `${L("gameFallback")} #${id}`, meta: L("noCampaignNow") });
+      if (id && !rows.has(id)) {
+        rows.set(id, { id, name: picks[id]?.name || `${L("gameFallback")} #${id}`, image: picks[id]?.image || "", meta: L("noCampaignNow") });
+      }
     }
   }
   // Выбранная игра могла пропасть отовсюду: показываем её, иначе непонятно, что включено.
   const saved = soloSaved(platform);
   if (saved && !rows.has(saved)) {
     const remembered = platform === "twitch" && String(latest?.soloGameId || "") === saved ? latest?.soloGameName || "" : "";
-    rows.set(saved, { id: saved, name: remembered || saved, categoryId: platform === "kick" ? Number(settings.soloKickCat) || 0 : 0, meta: L("noCampaignNow") });
+    rows.set(saved, { id: saved, name: remembered || saved, image: "", categoryId: platform === "kick" ? Number(settings.soloKickCat) || 0 : 0, meta: L("noCampaignNow") });
   }
   return rows;
 }
@@ -1633,9 +1637,19 @@ function soloMatches(game, query) {
   return !needle || game.name.toLowerCase().includes(needle);
 }
 
+// Та же обложка, что во вкладке Priority: своя картинка игры или boxart Twitch по её id.
+// У Kick картинка есть только у игры с кампанией: выдуманного адреса не строим.
+function soloArt(game, platform) {
+  const safe = safeUrl(game?.image);
+  if (safe) return safe;
+  return platform === "twitch" && /^\d+$/.test(String(game?.id || "")) ? boxArt(game.id, "144x192") : "";
+}
+
 function soloRow(game, saved, platform) {
+  const art = soloArt(game, platform);
   return `
     <button type="button" class="game solo-game${game.id === saved ? " on" : ""}" data-solo="${escapeHtml(game.id)}" data-cat="${Number(game.categoryId) || 0}" data-platform="${platform}">
+      ${art ? `<img class="game-art" src="${escapeHtml(art)}" alt="">` : ""}
       <span><strong>${escapeHtml(game.name)}</strong>${game.meta ? `<small>${escapeHtml(game.meta)}</small>` : ""}</span>
       <span class="check"></span>
     </button>`;
@@ -1671,12 +1685,24 @@ function paintSolo() {
   $("solo-kick-label").textContent = L("soloKick");
   $("solo-kick-hint").textContent = L("soloKickHint");
   for (const platform of ["twitch", "kick"]) {
-    const [pickId, valueId, findId] = soloIds(platform);
+    const [pickId, valueId, findId, , , artId] = soloIds(platform);
     const pick = $(pickId);
     if (!pick) continue;
     const saved = soloSaved(platform);
+    const option = saved ? soloOptions(platform).get(saved) : null;
     const remembered = platform === "twitch" && String(latest?.soloGameId || "") === saved ? latest?.soloGameName || "" : "";
-    const label = saved ? soloOptions(platform).get(saved)?.name || remembered || saved : L("soloOff");
+    const label = saved ? option?.name || remembered || saved : L("soloOff");
+    const art = option ? soloArt(option, platform) : "";
+    const image = $(artId);
+    if (image) {
+      if (art) {
+        image.onerror = () => image.classList.add("hidden");
+        image.src = art;
+      } else {
+        image.removeAttribute("src");
+      }
+      image.classList.toggle("hidden", !art);
+    }
     $(valueId).textContent = label;
     pick.title = label;
     pick.classList.toggle("on", Boolean(saved));

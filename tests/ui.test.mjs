@@ -84,6 +84,20 @@ test("список игр «одной игры» подтягивается и�
   assert.ok(!/"(Rust|Minecraft|Grand Theft|Fortnite)"/.test(code), "названий игр в коде нет");
 });
 
+test("у «одной игры» есть картинка, как во вкладке Priority", () => {
+  // Запрос пользователя: в строке «одна игра без остановки» не было обложки игры.
+  for (const platform of ["twitch", "kick"]) {
+    assert.ok(html.includes(`id="solo-${platform}-art"`), "у " + platform + " есть место под картинку");
+  }
+  assert.ok(popup.includes("function soloArt("), "картинка выбирается общей функцией");
+  assert.ok(popup.includes('boxArt(game.id, "144x192")'), "у Twitch обложка строится по id игры");
+  const start = popup.indexOf("function soloRow(");
+  const end = popup.indexOf("function renderSoloList(");
+  assert.ok(start > 0 && end > start, "soloRow найдена");
+  assert.ok(popup.slice(start, end).includes("game-art"), "строка списка рисует обложку");
+  assert.ok(popup.slice(popup.indexOf("function soloOptions("), start).includes("image: game?.image"), "Kick отдаёт картинку кампании");
+});
+
 test("мёртвых строк не прибавилось", () => {
   // Пять ключей висят с прежних версий: они были не нужны и в main, поэтому это не регрессия ветки.
   const known = new Set(["noLogin", "kickTitle", "kickLeft", "kickChannels", "viewOnly"]);

@@ -457,6 +457,7 @@ h2 {
   cursor: pointer;
 }
 .solo-pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.solo-art { width: 20px; height: 27px; border-radius: 4px; object-fit: cover; flex: none; }
 .solo-pick::after { content: "▾"; flex: 0 0 auto; color: var(--dim); font-size: 11px; }
 .solo-pick.on { color: var(--green); }
 .solo-pick[aria-expanded="true"] { background: #333338; }
