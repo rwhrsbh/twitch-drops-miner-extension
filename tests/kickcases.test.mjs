@@ -45,6 +45,10 @@ globalThis.fetch = async (url, init = {}) => {
   if (!hit) return new Response("{}", { status: 404 });
   const [, value] = hit;
   const out = typeof value === "function" ? value(init, String(url)) : value;
+  // HTML с кодом 200: так отвечает заглушка WAF вместо JSON.
+  if (out && typeof out === "object" && typeof out.html === "string") {
+    return new Response(out.html, { status: out.status ?? 200, headers: { "Content-Type": "text/html" } });
+  }
   return new Response(JSON.stringify(out.body ?? out), { status: out.status ?? 200 });
 };
 
@@ -318,6 +322,7 @@ test("кнопка «Открыть» не открывает кейс чужо�
   const state = await cases.openKickCase(sunset.id, "нет-такого-аккаунта");
   assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 0, "клейма не было");
   assert.equal(state.accounts.current.items[0].status, "claimable");
+  assert.equal(state.notice, "account-gone", "попап скажет, что аккаунт пропал");
 });
 
 test("два прохода сразу не открывают кейс дважды", async () => {
@@ -349,6 +354,57 @@ test("401 не долбит Kick каждые 90 секунд", async () => {
   const before = calls.length;
   await cases.kickCasesTick();
   assert.equal(calls.length, before);
+});
+
+test("200 с HTML вместо JSON — отказ, а не открытый кейс", async () => {
+  reset();
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { html: "<html>Just a moment...</html>", status: 200 }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  const state = await cases.kickCasesTick({ force: true });
+  assert.equal(Object.keys(state.accounts.current.failed).length, 1);
+  assert.match(state.accounts.current.claimError, /not json/);
+  assert.equal((store.local.history || []).length, 0);
+});
+
+test("живая кука и устаревший active не клеймят один аккаунт дважды", async () => {
+  reset();
+  store.local.kick = { user: "bob", enabled: true };
+  store.local.accounts = {
+    kick: { active: "A", list: [{ id: "A", login: "alice" }, { id: "B", login: "bob" }] },
+    twitch: { active: "", list: [] },
+    rotate: { mode: "all", limit: 1 },
+  };
+  store.local.accountCookies = {
+    kick: { A: [{ name: "session_token", value: "tokA" }], B: [{ name: "session_token", value: "tokB" }] },
+    twitch: {},
+  };
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { data: { winner: { rarity: "rare" } } }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  await cases.kickCasesTick({ force: true });
+  const claims = calls.filter((call) => call.url.includes("/claim"));
+  assert.equal(claims.filter((call) => call.init.headers.Authorization === "Bearer abc|def").length, 1, "живая кука клеймит один раз");
+  assert.ok(!claims.some((call) => call.init.headers.Authorization === "Bearer tokB"), "сохранённый B не дублирует живой вход");
+  const history = store.local.history || [];
+  assert.equal(history.filter((item) => item.account === "bob").length, 1, "одна запись на живой аккаунт");
+});
+
+test("режим «только вручную» не стирает отметки сохранённых аккаунтов", async () => {
+  reset();
+  store.local.accounts = {
+    kick: { active: "k1", list: [{ id: "k1", login: "one" }, { id: "k2", login: "two" }] },
+    twitch: { active: "", list: [] },
+    rotate: { mode: "never", limit: 1 },
+  };
+  store.local.accountCookies = {
+    kick: { k1: [{ name: "session_token", value: "tok1" }], k2: [{ name: "session_token", value: "tok2" }] },
+    twitch: {},
+  };
+  store.local.kickCases = { enabled: true, accounts: { k2: { login: "two", items: [], opened: { "x|1": { at: 1 } }, failed: {}, checkedAt: 1 } } };
+  const state = await cases.kickCasesTick({ force: true });
+  assert.ok(state.accounts.k2, "отметки сохранённого аккаунта остались");
+  assert.equal(state.accounts.k2.opened["x|1"].at, 1);
 });
 
 test("переключатель сохраняется", async () => {

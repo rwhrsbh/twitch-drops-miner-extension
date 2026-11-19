@@ -45,7 +45,7 @@ globalThis.fetch = async (url, init = {}) => {
   const hit = Object.entries(net).find(([key]) => String(url).includes(key));
   if (!hit) return new Response("{}", { status: 404 });
   const [, value] = hit;
-  const out = typeof value === "function" ? value(init) : value;
+  const out = typeof value === "function" ? value(init, String(url)) : value;
   return new Response(JSON.stringify(out.body ?? out), { status: out.status ?? 200 });
 };
 
@@ -188,6 +188,25 @@ test("кейс: дропов нет и кейса нет — стоим, как 
   assert.equal(s.phase, "all-claimed");
   assert.equal(s.watching, null);
   assert.equal(sockets.length, 0);
+});
+
+test("соло: дроп ждёт канал, сокет соло-эфира не пересоздаётся", async () => {
+  await resetAsync();
+  // Эксклюзивный дроп: его канал офлайн, зато в категории есть другой живой эфир.
+  net["drops/campaigns"] = { data: [campaign({ channels: [{ slug: "streamer" }] })] };
+  net["api/v2/channels/"] = (init, url) => (String(url).includes("streamer")
+    ? { id: 5, livestream: null }
+    : { id: 6, livestream: { id: 100, categories: [{ id: 13 }], viewer_count: 5 } });
+  net["livestreams"] = { data: { livestreams: [{ id: "01a0-uuid", channel: { id: 6, slug: "other" } }] } };
+  store.local.settings = { soloKick: "Rust" };
+  let state = await kick.kickTick();
+  assert.equal(state.watching.solo, true, "смотрим другой эфир игры");
+  assert.equal(sockets.length, 1);
+  await kick.kickTick();
+  await kick.kickTick();
+  assert.equal(sockets.length, 1, "сокет тот же, дроп всё ещё ждёт канал");
+  assert.notEqual(sockets[0].readyState, 3, "старый сокет не закрыт");
+  kick.stopWatch();
 });
 
 test("blacklist filters campaign", async () => {

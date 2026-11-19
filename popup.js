@@ -1636,7 +1636,9 @@ function renderCases(state) {
   const open = ids.reduce((sum, id) => sum + (accounts[id].items || []).filter((row) => row.status !== "claimed").length, 0);
   const error = ids.map((id) => accounts[id].error || accounts[id].claimError).find(Boolean) || "";
   $("cases-title").textContent = L("casesTitle");
-  $("cases-hint").textContent = error ? L("casesError", { reason: error }) : L("casesHint");
+  $("cases-hint").textContent = error
+    ? L("casesError", { reason: error })
+    : casesState?.notice === "account-gone" ? L("casesNoticeGone") : L("casesHint");
   $("cases-count").textContent = open ? String(open) : "";
   const blocks = ids.map((id) => {
     const rows = accounts[id].items || [];

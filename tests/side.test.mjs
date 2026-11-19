@@ -356,6 +356,20 @@ test("kick: появившийся дроп важнее соло-эфира у 
   assert.equal(out["2"].watching.dropId, "r1");
 });
 
+test("kick: дроп ждёт канал, кейс-сокет побочного аккаунта не пересоздаётся", async () => {
+  await reset();
+  channels.rusty.live = false;
+  channels.rusty2.live = false;
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  await kickSide.kickSideTick();
+  await kickSide.kickSideTick();
+  await kickSide.kickSideTick();
+  assert.equal(sockets.length, 1, "один сокет на три прохода");
+  assert.equal(sockets[0].closed, false);
+});
+
 test("kick: кейса нет и фармить нечего — сокет закрыт", async () => {
   await reset();
   users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };
