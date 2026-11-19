@@ -292,6 +292,8 @@ test("второй аккаунт открывает свои кейсы сво�
     rotate: { mode: "all", limit: 1 },
   };
   store.local.accountCookies = { kick: { k2: [{ name: "session_token", value: "tok2" }] }, twitch: {} };
+  // Живая кука браузера — отдельный человек: логин проверяется, чтобы не смешать его с сохранённым.
+  net["kick.com/api/v1/user"] = { username: "browser" };
   net["gamification/challenges"] = (init, url) => {
     const auth = String(init.headers.Authorization || "");
     if (String(url).includes("/claim")) {
@@ -310,7 +312,7 @@ test("второй аккаунт открывает свои кейсы сво�
   assert.equal(browser.init.credentials, "include");
   assert.equal(state.accounts.k2.login, "second");
   assert.equal(state.accounts.k2.items[0].rarity, "mythic");
-  assert.match(state.accounts.current.items[0].rarity, /common|mythic/);
+  assert.match(state.accounts["live:browser"].items[0].rarity, /common|mythic/);
   const history = store.local.history || [];
   assert.equal(history.filter((item) => item.account === "second" && item.name.includes("mythic")).length, 1);
   assert.ok(history.some((item) => item.account !== "second"), "история аккаунта браузера тоже есть");
@@ -670,6 +672,51 @@ test("убранный аккаунт не оставляет кейсов, ис
 test("caseRows: недельный кейс получает ключ по неделе", () => {
   const rows = cases.caseRows({ data: [{ id: "w", name: "Weekly", recurrence: "weekly", condition: { progress: 1, threshold: 5, type: "watch_time_minutes" } }] });
   assert.match(rows[0].key, /^w\|week:\d{4}-W\d{2}$/);
+});
+
+test("неопознанный живой токен не открывает кейсы", async () => {
+  reset();
+  // Токен в браузере не сохранён, а Kick не сказал, чей он: клеймить нельзя — вдруг это
+  // сохранённый вход с обновлённым токеном, тогда тот же человек открыл бы кейс дважды.
+  cookie = "tokX";
+  store.local.accounts = {
+    kick: { active: "A", list: [{ id: "A", login: "alice" }] },
+    twitch: { active: "", list: [] },
+    rotate: { mode: "all", limit: 1 },
+  };
+  store.local.accountCookies = { kick: { A: [{ name: "session_token", value: "tokA" }] }, twitch: {} };
+  net["kick.com/api/v1/user"] = { status: 500, body: {} };
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { data: { winner: { rarity: "rare" } } }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  const state = await cases.kickCasesTick({ force: true });
+  assert.equal(state.accounts.current.served, false);
+  assert.equal(state.accounts.current.unverified, true);
+  assert.deepEqual(state.accounts.current.items, []);
+  const claims = calls.filter((call) => call.url.includes("/claim"));
+  assert.deepEqual(claims.map((call) => call.init.headers.Authorization), ["Bearer tokA"], "клеймит только опознанный вход");
+  assert.deepEqual((store.local.history || []).map((item) => item.account), ["alice"]);
+});
+
+test("два сохранённых входа с одним логином не открывают кейс дважды", async () => {
+  reset();
+  cookie = "tokA";
+  store.local.accounts = {
+    kick: { active: "A", list: [{ id: "A", login: "alice" }, { id: "D", login: "Alice" }] },
+    twitch: { active: "", list: [] },
+    rotate: { mode: "all", limit: 1 },
+  };
+  store.local.accountCookies = {
+    kick: { A: [{ name: "session_token", value: "tokA" }], D: [{ name: "session_token", value: "tokD" }] },
+    twitch: {},
+  };
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { data: { winner: { rarity: "rare" } } }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  const state = await cases.kickCasesTick({ force: true });
+  assert.equal(state.accounts.A.served, true);
+  assert.equal(state.accounts.D.served, false, "дубль того же человека не обслуживается");
+  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 1);
 });
 
 test("переключатель сохраняется", async () => {

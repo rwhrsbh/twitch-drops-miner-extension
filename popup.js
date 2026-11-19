@@ -1649,6 +1649,7 @@ function renderCases(state) {
     ? L("casesError", { reason: error })
     : casesState?.notice === "account-gone" ? L("casesNoticeGone")
       : casesState?.notice === "not-served" ? L("casesNoticeMode")
+        : casesState?.notice === "unverified" ? L("casesNoticeUnverified")
         : hidden ? L("casesNoticeHidden", { count: hidden }) : L("casesHint");
   $("cases-count").textContent = open ? String(open) : "";
   const blocks = ids.map((id) => {
