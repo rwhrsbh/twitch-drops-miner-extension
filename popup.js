@@ -300,10 +300,10 @@ function paintHero(box, card) {
   setHtml(box, `
     ${backdrop ? `<img class="hero-bg" src="${escapeHtml(backdrop)}" alt="">` : ""}
     <div><p class="eyebrow">${escapeHtml(label)}</p>${card.user ? `<span class="who">${escapeHtml(card.user)}</span>` : ""}</div>
-    ${ringHtml(ratio, !item)}
+    ${ringHtml(ratio, !item || item.solo)}
     ${item ? `<div>
       <h2>${escapeHtml(item.name)}</h2>
-      <p class="fine">${escapeHtml(item.game)} · ${L("minutesShort", { current: item.current || 0, required: item.required })}${card.ping ? ` · ${escapeHtml(card.ping)}` : ""}</p>
+      <p class="fine">${escapeHtml(item.game)} · ${item.solo ? escapeHtml(L("soloFine")) : L("minutesShort", { current: item.current || 0, required: item.required })}${card.ping ? ` · ${escapeHtml(card.ping)}` : ""}</p>
       <button class="channel" type="button" ${card.openAttr}="${escapeHtml(item.login)}"><i></i><span>${escapeHtml(item.login)}</span></button>
     </div>` : `<div><p class="hero-msg${card.bad ? " bad" : ""}">${escapeHtml(card.message || "")}</p></div>`}
     ${reward && reward !== backdrop ? `<img class="hero-art" src="${escapeHtml(reward)}" alt="">` : ""}
@@ -1016,6 +1016,9 @@ function renderSettings() {
   setHtml($("black-list"), pool.length
     ? pool.map((name) => `<label class="game${blocked.has(name.toLowerCase()) ? " on" : ""}"><input data-black="${escapeHtml(name)}" type="checkbox" ${blocked.has(name.toLowerCase()) ? "checked" : ""}><span><strong>${escapeHtml(name)}</strong></span><span class="check"></span></label>`).join("")
     : `<p class="empty">${L("blackEmpty")}</p>`);
+  // Одна игра без остановки и кейсы Kick живут в тех же настройках.
+  paintSolo();
+  paintCases();
 }
 
 async function saveSettings(patch) {
@@ -1063,7 +1066,7 @@ function renderKick(state) {
   status.textContent = !state.enabled
     ? L("kickIdle")
     : state.watching
-      ? `${state.watching.login} · ${state.watching.name} · ${L("outOf", { current: state.watching.current, required: state.watching.required })}`
+      ? `${state.watching.login} · ${state.watching.name} · ${state.watching.solo ? L("soloFine") : L("outOf", { current: state.watching.current, required: state.watching.required })}`
       : show(latest?.lang, state.message) || L("waitFirst");
   renderKickHero(state);
   const kickOpen = (state.queue || []).filter((row) => !row.claimed).length;
@@ -1555,3 +1558,140 @@ send({ type: "getSide" }).then((value) => { sideFarm = value || {}; renderSideCa
 send({ type: "getKickSide" }).then((value) => { kickSideFarm = value || {}; renderSideCards(); });
 send({ type: "getHistory" }).then((value) => { historyList = value || []; renderHistory(); });
 send({ type: "getAccounts" }).then(applyAccounts);
+
+// ---------- Одна игра без остановки и кейсы Kick ----------
+
+let casesState = null;
+
+// Варианты для списка «одна игра»: у Twitch значение — id игры, у Kick — её название.
+function soloGames(platform) {
+  const rows = new Map();
+  if (platform === "kick") {
+    for (const game of kickState?.games || []) {
+      const name = String(game?.name || game || "").trim();
+      if (name) rows.set(name, name);
+    }
+  } else {
+    for (const game of latest?.games || []) {
+      const id = String(game?.id || "").trim();
+      if (id) rows.set(id, String(game.name || id));
+    }
+  }
+  return rows;
+}
+
+function paintSolo() {
+  for (const platform of ["twitch", "kick"]) {
+    const box = $(platform === "kick" ? "solo-kick" : "solo-twitch");
+    if (!box) continue;
+    const saved = String(platform === "kick" ? settings.soloKick : settings.soloTwitch) || "";
+    const rows = soloGames(platform);
+    // Выбранная игра могла пропасть из списка: показываем её, иначе непонятно, что включено.
+    if (saved && !rows.has(saved)) rows.set(saved, saved);
+    const list = [...rows.entries()].sort((left, right) => left[1].localeCompare(right[1]));
+    // Список переписываем только когда он правда изменился: иначе открытый выпадающий список
+    // закрывался бы на каждом обновлении состояния раз в минуту.
+    const key = JSON.stringify([L("soloOff"), list, saved]);
+    if (box.dataset.key === key) continue;
+    box.dataset.key = key;
+    box.innerHTML = `<option value="">${escapeHtml(L("soloOff"))}</option>`
+      + list.map(([id, name]) => `<option value="${escapeHtml(id)}"${id === saved ? " selected" : ""}>${escapeHtml(name)}</option>`).join("");
+  }
+  $("solo-twitch-label").textContent = L("soloTwitch");
+  $("solo-twitch-hint").textContent = L("soloTwitchHint");
+  $("solo-kick-label").textContent = L("soloKick");
+  $("solo-kick-hint").textContent = L("soloKickHint");
+}
+
+function paintCases() {
+  $("cases-toggle-label").textContent = L("casesToggle");
+  $("cases-toggle-hint").textContent = L("casesToggleHint");
+  $("cases-toggle").setAttribute("aria-pressed", casesState?.enabled === false ? "false" : "true");
+}
+
+// Кейсы есть у каждого аккаунта Kick, поэтому строка помнит, чей это аккаунт.
+function caseRow(row, account) {
+  const ratio = row.threshold ? Math.min(100, Math.round((row.progress / row.threshold) * 100)) : 0;
+  const ready = row.status === "claimable" || (row.threshold > 0 && row.progress >= row.threshold && row.status !== "claimed");
+  const art = row.image && safeUrl(row.image)
+    ? `<img class="case-art" src="${escapeHtml(row.image)}" alt="">`
+    : `<span class="case-badge">${escapeHtml((row.name || "?").slice(0, 1).toUpperCase())}</span>`;
+  const bits = [];
+  if (row.status === "claimed") bits.push(L("casesClaimed"));
+  else if (row.threshold) bits.push(L("casesProgress", { current: row.progress, required: row.threshold }));
+  if (row.rarity) bits.push(row.rarity);
+  const bar = row.threshold && row.status !== "claimed"
+    ? `<div class="case-bar"><i style="width:${ratio}%"></i></div>`
+    : "";
+  const button = ready
+    ? `<button type="button" data-case="${escapeHtml(row.id)}" data-acc="${escapeHtml(account || "")}">${escapeHtml(L("casesOpen"))}</button>`
+    : "";
+  return `<div class="case">${art}<span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(bits.join(" · "))}</small>${bar}</span>${button}</div>`;
+}
+
+// У аккаунта браузера может не быть имени: показываем «В браузере», а не «current».
+function accountLabel(id, entry) {
+  if (entry?.login) return entry.login;
+  return id === "current" ? L("browserAs") : id;
+}
+
+function renderCases(state) {
+  if (state) casesState = state;
+  const all = casesState?.accounts || {};
+  // Необслуживаемые аккаунты (например, сохранённые при режиме «только вручную») не предлагаем.
+  const accounts = Object.fromEntries(Object.entries(all).filter(([, entry]) => entry.served !== false));
+  const ids = Object.keys(accounts);
+  const hidden = Object.keys(all).length - ids.length;
+  const open = ids.reduce((sum, id) => sum + (accounts[id].items || []).filter((row) => row.status !== "claimed").length, 0);
+  const error = ids.map((id) => accounts[id].error || accounts[id].claimError).find(Boolean) || "";
+  $("cases-title").textContent = L("casesTitle");
+  $("cases-hint").textContent = error
+    ? L("casesError", { reason: error })
+    : casesState?.notice === "account-gone" ? L("casesNoticeGone")
+      : casesState?.notice === "not-served" ? L("casesNoticeMode")
+        : casesState?.notice === "unverified" ? L("casesNoticeUnverified")
+        : hidden ? L("casesNoticeHidden", { count: hidden }) : L("casesHint");
+  $("cases-count").textContent = open ? String(open) : "";
+  const blocks = ids.map((id) => {
+    const rows = accounts[id].items || [];
+    // Заголовок аккаунта нужен, только когда аккаунтов несколько.
+    const head = ids.length > 1 ? `<div class="acc-cap">${escapeHtml(accountLabel(id, accounts[id]))}</div>` : "";
+    return head + (rows.length
+      ? rows.map((row) => caseRow(row, id)).join("")
+      : `<p class="empty">${escapeHtml(L("casesEmpty"))}</p>`);
+  });
+  setHtml($("cases-list"), ids.length ? blocks.join("") : `<p class="empty">${escapeHtml(L("casesEmpty"))}</p>`);
+  hideBrokenImages($("cases"));
+  paintCases();
+}
+
+$("solo-twitch").addEventListener("change", (event) => saveSettings({ soloTwitch: event.target.value }));
+$("solo-kick").addEventListener("change", (event) => saveSettings({ soloKick: event.target.value }));
+
+$("cases-toggle").addEventListener("click", async () => {
+  const on = casesState?.enabled === false;
+  casesState = { ...(casesState || {}), enabled: on };
+  paintCases();
+  renderCases(await send({ type: "setKickCasesEnabled", enabled: on }));
+});
+
+$("cases-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-case]");
+  if (!button) return;
+  button.disabled = true;
+  // Service worker мог только что уснуть: без finally кнопка осталась бы выключенной навсегда.
+  try {
+    renderCases(await send({ type: "openKickCase", id: button.dataset.case, account: button.dataset.acc }));
+  } finally {
+    button.disabled = false;
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.kickCases?.newValue) renderCases(changes.kickCases.newValue);
+  if (changes.state?.newValue || changes.kick?.newValue) paintSolo();
+});
+
+send({ type: "getKickCases" }).then(renderCases);
+

@@ -176,6 +176,8 @@ test("новый эфир того же канала: сокет переотк�
 test("ежедневная награда забирается один раз и попадает в историю", async () => {
   await reset();
   await history.clearHistory();
+  // Кейсы выключены: только тогда дейли-награду забирает этот модуль, а не lib/kickcases.js.
+  store.local.kickCases = { enabled: false };
   challenges = [
     { id: "c1", status: "claimable", name: "Daily Reward", window: { ends_at: "2026-10-11" } },
     { id: "c2", status: "in_progress" },
@@ -192,6 +194,15 @@ test("ежедневная награда забирается один раз �
   assert.equal(rows[0].name, "Daily Reward · rare");
   assert.equal(rows[0].image, "https://pic/card.png");
   assert.equal(rows[0].account, "me");
+});
+
+test("ежедневная награда забирается, когда кейсов ещё нет (апгрейд с 1.7.1)", async () => {
+  await reset();
+  await history.clearHistory();
+  delete store.local.kickCases;
+  challenges = [{ id: "c1", status: "claimable", name: "Daily Reward", window: { ends_at: "2026-10-11" } }];
+  await points.kickPointsTick();
+  assert.deepEqual(claimed, ["c1"], "без прохода кейсов награду забирает этот модуль");
 });
 
 test("нет входа в Kick: сокеты закрываются", async () => {
@@ -239,6 +250,29 @@ test("пока аккаунт фармит дроп, каналы баллов �
   // Дроп появился снова: сокеты баллов закрываются.
   await points.pointsPass(ctx("three", free), pool);
   assert.deepEqual(pool.keys(), []);
+});
+
+test("кейсы чужого аккаунта не отнимают ежедневную награду у своего", async () => {
+  await reset();
+  challenges = [{ id: "c1", status: "claimable", name: "Daily Reward", window: { ends_at: "2026-10-11" } }];
+  store.local.kickCases = {
+    enabled: true,
+    accounts: {
+      a: { login: "me", checkedAt: Date.now(), error: "", claimError: "" },
+      b: { login: "second", checkedAt: Date.now(), error: "HTTP 401" },
+    },
+  };
+  const { createWatchers } = await import("../lib/kicksocket.js");
+  const pool = createWatchers();
+  const run = (account) => points.pointsPass({
+    token: "1|abc", viewer: async () => "v", channels: [], dropLogin: "", previous: {},
+    prefix: "acc:", account, own: false,
+  }, pool);
+  claimed.length = 0;
+  await run("me");
+  assert.deepEqual(claimed, [], "у этого аккаунта кейсы работают — не дублируем");
+  await run("second");
+  assert.deepEqual(claimed, ["c1"], "у этого кейсы падают — забираем награду сами");
 });
 
 test("флаг выключен: баллы Kick не собираются и сокеты не открываются", async () => {

@@ -41,6 +41,7 @@ import {
   searchKickChannels,
   setKickPointsChannels,
 } from "./lib/kickpoints.js";
+import { kickCasesTick, openKickCase, readKickCases, setKickCasesEnabled } from "./lib/kickcases.js";
 import { rotate } from "./lib/rotation.js";
 import { loadHashes, refreshHashes } from "./lib/remote.js";
 import { readSettings, writeSettings } from "./lib/settings.js";
@@ -143,6 +144,8 @@ async function cycle() {
   kickTick().then((state) => {
     // После прохода майнера: уже известно, какой канал он смотрит ради дропа.
     kickPointsTick();
+    // Кейсы (Daily Reward, Sunset Reward Case и другие акции): минуты им считает тот же просмотр.
+    kickCasesTick().catch(() => {});
     // Остальные аккаунты Kick фармят параллельно по своим токенам.
     kickSideTick().catch(() => {});
     return rotate("kick", state, hooks);
@@ -161,6 +164,7 @@ function nudge() {
   runSide().catch(() => {});
   kickSideTick().catch(() => {});
   kickPointsTick().catch(() => {});
+  kickCasesTick().catch(() => {});
 }
 
 chrome.tabs.onCreated.addListener((tab) => {
@@ -245,6 +249,7 @@ const readers = {
   getSide: () => readSide(),
   getKickSide: () => readKickSide(),
   getKickPoints: () => readKickPoints(),
+  getKickCases: () => readKickCases(),
   searchKickChannels: async (message) => {
     try {
       return { items: await searchKickChannels(message.query) };
@@ -274,6 +279,8 @@ const readers = {
 
 const writers = {
   watchKickDrop: (message) => watchKickDrop(message.id),
+  // Клейм кейса: меняет состояние на сервере, поэтому идёт в очередь записей.
+  openKickCase: (message) => openKickCase(String(message.id || ""), String(message.account || "")),
   setKickEnabled: async (message) => {
     const next = await setKickEnabled(Boolean(message.enabled));
     nudge();
@@ -289,6 +296,11 @@ const writers = {
   setLanguage: (message) => setLanguage(message.lang),
   setPointsChannels: (message) => setPointsChannels(message.channels || []),
   setKickPointsChannels: (message) => setKickPointsChannels(message.channels || []),
+  setKickCasesEnabled: async (message) => {
+    const next = await setKickCasesEnabled(Boolean(message.enabled));
+    nudge();
+    return next;
+  },
   watchSideDrop: (message) => watchSideDrop(String(message.account), String(message.id)),
   watchKickSideDrop: (message) => watchKickSideDrop(String(message.account), String(message.id)),
   setPointsEnabled: async (message) => {
