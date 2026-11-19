@@ -59,7 +59,7 @@ function clientMock() {
       return "claimed";
     },
     // Reward-сундуки в соло не участвуют, но lib/miner.js импортирует claimReward.
-    claimReward: async () => false,
+    claimReward: async (_auth, drop) => { calls.push({ what: "claimReward", id: drop.id }); return false; },
     currentDrop: async () => null,
     discoverSpadeUrl: async () => "https://spade.twitch.tv/track",
     readInventory: async () => inventory,
@@ -165,4 +165,45 @@ test("solo: готовый дроп другой игры забирается, 
   const history = store.local.history || [];
   assert.ok(history.some((item) => item.name === "Ward"), "клейм попал в историю");
   assert.ok(!state.queue.some((row) => row.id === "d1"), "забранный уходит из очереди");
+});
+
+test("solo: готовый сундук другой игры идёт через claimReward, а не claimDrop", async (t) => {
+  summaries = [
+    campaign("c1", rust, [drop("r1", "Skin", 60, 10)]),
+    campaign("rw", dota, [drop("g1", "Chest", 60, 60)]),
+  ];
+  inventory = [];
+  streamGame = rust;
+  const miner = await boot(t, { soloTwitch: "111" });
+  store.local.state = {
+    enabled: true, lang: "ru",
+    queue: [{
+      id: "g1", name: "Chest", game: "Dota 2", gameId: "222", campaignId: "rw", campaignName: "Reward",
+      required: 60, current: 60, claimed: false, claimId: "", benefits: ["Chest"], image: "",
+      kind: "reward", status: "CLAIMABLE", repeatableTimes: 6, grantCount: 0,
+    }],
+  };
+  await miner.tick("test");
+  assert.ok(calls.some((call) => call.what === "claimReward" && call.id === "g1"), "сундук ушёл в claimReward");
+  assert.ok(!calls.some((call) => call.what === "claimDrop" && call.id === "g1"), "claimDrop для сундука не зовётся");
+});
+
+test("solo: значок другой игры не клеймится как обычный дроп", async (t) => {
+  summaries = [
+    campaign("c1", rust, [drop("r1", "Skin", 60, 10)]),
+    campaign("bd", dota, [drop("b1", "Badge", 15, 15)]),
+  ];
+  inventory = [];
+  streamGame = rust;
+  const miner = await boot(t, { soloTwitch: "111" });
+  store.local.state = {
+    enabled: true, lang: "ru",
+    queue: [{
+      id: "b1", name: "Badge", game: "Dota 2", gameId: "222", campaignId: "bd", campaignName: "Badges",
+      required: 15, current: 15, claimed: false, claimId: "", benefits: ["Badge"], image: "", badge: true,
+    }],
+  };
+  await miner.tick("test");
+  assert.ok(!calls.some((call) => call.what === "claimDrop" && call.id === "b1"), "claimDrop для значка не зовётся");
+  assert.ok(Object.keys(store.local.badgeDrops || {}).some((key) => key.endsWith(":b1")), "значок отмечен выданным");
 });
