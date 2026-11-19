@@ -252,6 +252,29 @@ test("пока аккаунт фармит дроп, каналы баллов �
   assert.deepEqual(pool.keys(), []);
 });
 
+test("кейсы чужого аккаунта не отнимают ежедневную награду у своего", async () => {
+  await reset();
+  challenges = [{ id: "c1", status: "claimable", name: "Daily Reward", window: { ends_at: "2026-10-11" } }];
+  store.local.kickCases = {
+    enabled: true,
+    accounts: {
+      a: { login: "me", checkedAt: Date.now(), error: "", claimError: "" },
+      b: { login: "second", checkedAt: Date.now(), error: "HTTP 401" },
+    },
+  };
+  const { createWatchers } = await import("../lib/kicksocket.js");
+  const pool = createWatchers();
+  const run = (account) => points.pointsPass({
+    token: "1|abc", viewer: async () => "v", channels: [], dropLogin: "", previous: {},
+    prefix: "acc:", account, own: false,
+  }, pool);
+  claimed.length = 0;
+  await run("me");
+  assert.deepEqual(claimed, [], "у этого аккаунта кейсы работают — не дублируем");
+  await run("second");
+  assert.deepEqual(claimed, ["c1"], "у этого кейсы падают — забираем награду сами");
+});
+
 test("флаг выключен: баллы Kick не собираются и сокеты не открываются", async () => {
   await reset();
   await points.setKickPointsChannels([{ login: "alpha", id: "", name: "Alpha" }]);

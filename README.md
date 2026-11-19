@@ -41,6 +41,12 @@ Not collected in this version: the Points tab and the settings switch are hidden
 - `kickPoints`: works (Kick credits points for the same background WebSocket "viewing" that drops use; balance and daily rewards included; endpoints follow atalaydenknalbant/twitch-kick-points-miner). Hidden for now to keep the popup simple.
 - `twitchPoints`: checked in October 2026, Twitch credits points and offers bonuses only to a real player. Minute-watched pings, playlist requests and forged player events earn nothing, and the extension never opens video for points.
 
+## What changed in the defaults
+
+Kick cases are on by default, and that has two visible consequences. With nothing left to farm the miner now watches any live stream so the case keeps filling, where it used to stop. A saved account with no picked games may watch for its own case instead of sitting on "no games picked". Both stop with the Kick switch or with the case switch.
+
+The one-game mode is global: while it is on, it overrides the picked games and auto mode for every account at once. "Each account has its own games" holds for the normal queue, not for this mode.
+
 ## One game non-stop
 
 Settings has a "one game" picker for Twitch and one for Kick. When a game is chosen the miner farms that game and nothing else, in this order:
