@@ -53,11 +53,35 @@ test("каждый ключ, который просит код, есть в о�
 test("новые строки режимов и кейсов действительно используются", () => {
   const code = ["popup.js", "lib/miner.js", "lib/kick.js", "lib/kickcases.js"]
     .map(read).join("\n");
-  for (const key of ["soloTwitch", "soloKick", "soloOff", "soloFine", "soloLine", "soloLineDrops", "soloLineAny",
+  for (const key of ["soloTwitch", "soloKick", "soloOff", "soloSearch", "soloSearchHint", "soloFine", "soloLine", "soloLineDrops", "soloLineAny",
     "soloOffline", "casesTitle", "casesHint", "casesEmpty", "casesError", "casesOpen", "casesClaimed",
     "casesProgress", "casesToggle", "casesToggleHint"]) {
     assert.ok(code.includes(`"${key}"`), "ключ " + key + " используется");
   }
+});
+
+test("одна игра выбирается поиском, а не выпадающим списком", () => {
+  // Жалоба пользователя: <select> выглядел как захардкоженный список игр. Теперь там поиск,
+  // как во вкладке Priority: строка ввода и список строк под ней.
+  assert.ok(!/<select id="solo-/.test(html), "выпадающих списков «одна игра» больше нет");
+  for (const platform of ["twitch", "kick"]) {
+    assert.ok(html.includes(`id="solo-${platform}-filter"`), "у " + platform + " есть строка поиска");
+    assert.ok(html.includes(`id="solo-${platform}-list"`), "у " + platform + " есть список игр");
+    assert.ok(popup.includes(`id="solo-${platform}-filter"`) || popup.includes(`solo-${platform}-filter`), "поиск " + platform + " подключён");
+  }
+});
+
+test("список игр «одной игры» подтягивается из состояния, а не захардкожен", () => {
+  // Пользователь: «убедись, что ты не хардкодишь, а подтягиваешь списки». Варианты строятся из игр
+  // кампаний Kick, его очереди, выбранных в Priority игр и состояния Twitch.
+  const start = popup.indexOf("function soloOptions(");
+  const end = popup.indexOf("function soloMatches(");
+  assert.ok(start > 0 && end > start, "soloOptions найдена");
+  const code = popup.slice(start, end);
+  for (const source of ["kickState?.games", "kickState?.queue", "settings.picked", "latest?.games", "latest?.whitelist"]) {
+    assert.ok(code.includes(source), "источник " + source);
+  }
+  assert.ok(!/"(Rust|Minecraft|Grand Theft|Fortnite)"/.test(code), "названий игр в коде нет");
 });
 
 test("мёртвых строк не прибавилось", () => {

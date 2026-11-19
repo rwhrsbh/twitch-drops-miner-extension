@@ -438,6 +438,38 @@ h2 {
 
 #games { max-height: 132px; overflow: auto; }
 
+/* «Одна игра»: тот же выбор, что в Priority — поиск и список, а не выпадающий список. */
+.solo-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 48%;
+  min-height: 32px;
+  margin: 0;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: #26262a;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.solo-pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.solo-pick::after { content: "▾"; flex: 0 0 auto; color: var(--dim); font-size: 11px; }
+.solo-pick.on { color: var(--green); }
+.solo-pick[aria-expanded="true"] { background: #333338; }
+.solo-find { padding: 8px; border-top: 0.5px solid var(--line); background: rgba(255, 255, 255, 0.02); }
+.solo-find .search { padding: 0 0 8px; }
+.solo-list { max-height: 176px; overflow: auto; border-radius: 12px; background: #1a1a1d; }
+.solo-list .game { grid-template-columns: 1fr auto; }
+.solo-list .empty { padding: 10px 12px; margin: 0; }
+/* Кнопка выбора игры не делит строку с подсказкой: иначе текст сжимается в узкую колонку. */
+.picker .row.solo-row { flex-wrap: wrap; gap: 8px 10px; }
+.picker .row.solo-row .row-text { flex: 0 0 100%; }
+.picker .row.solo-row .solo-pick { flex: 1; min-width: 0; max-width: none; justify-content: space-between; }
+
 .log-sheet { padding: 0; }
 .log-sheet summary {
   padding: 12px 14px;

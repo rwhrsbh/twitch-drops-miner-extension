@@ -1564,43 +1564,127 @@ send({ type: "getAccounts" }).then(applyAccounts);
 let casesState = null;
 
 // Варианты для списка «одна игра»: у Twitch значение — id игры, у Kick — её название.
-function soloGames(platform) {
+// Выбор сделан поиском, как во вкладке Priority: игр в кампаниях бывает много, а выпадающий
+// список выглядел как захардкоженный набор и его приходилось листать.
+const soloOpen = { twitch: false, kick: false };
+const soloQuery = { twitch: "", kick: "" };
+
+function soloIds(platform) {
+  return platform === "kick"
+    ? ["solo-kick-pick", "solo-kick-value", "solo-kick-find", "solo-kick-filter", "solo-kick-list"]
+    : ["solo-twitch-pick", "solo-twitch-value", "solo-twitch-find", "solo-twitch-filter", "solo-twitch-list"];
+}
+
+function soloSaved(platform) {
+  return String(platform === "kick" ? settings.soloKick : settings.soloTwitch) || "";
+}
+
+function soloOptions(platform) {
   const rows = new Map();
   if (platform === "kick") {
+    // Список целиком из состояния Kick: игры кампаний и очереди. Ничего не захардкожено.
     for (const game of kickState?.games || []) {
       const name = String(game?.name || game || "").trim();
-      if (name) rows.set(name, name);
+      if (!name) continue;
+      rows.set(name, {
+        id: name,
+        name,
+        categoryId: Number(game?.categoryId) || 0,
+        meta: gameMeta({ ...game, kickOnly: true, id: `k:${name}` }),
+      });
+    }
+    for (const row of kickState?.queue || []) {
+      const name = String(row?.game || "").trim();
+      if (name && !rows.has(name)) rows.set(name, { id: name, name, categoryId: Number(row.categoryId) || 0, meta: L("noCampaignNow") });
+    }
+    // Игры, выбранные во вкладке Priority, остаются в списке и без текущих кампаний:
+    // иначе настройка выглядела бы пустой, хотя игры уже выбраны.
+    const chosen = editsLive("kick") ? settings.picked || [] : targetAccount("kick")?.picked || [];
+    for (const raw of chosen) {
+      const name = String(raw || "").trim();
+      if (name && !rows.has(name)) rows.set(name, { id: name, name, categoryId: 0, meta: L("noCampaignNow") });
     }
   } else {
     for (const game of latest?.games || []) {
       const id = String(game?.id || "").trim();
-      if (id) rows.set(id, String(game.name || id));
+      if (id) rows.set(id, { id, name: String(game.name || id), meta: gameMeta(game) });
     }
+    // То же для Twitch: выбранные в Priority игры видны здесь и без кампаний.
+    const ids = editsLive("twitch") ? latest?.whitelist || [] : targetAccount("twitch")?.whitelist || [];
+    const picks = latest?.picks || {};
+    for (const raw of ids) {
+      const id = String(raw || "").trim();
+      if (id && !rows.has(id)) rows.set(id, { id, name: picks[id]?.name || `${L("gameFallback")} #${id}`, meta: L("noCampaignNow") });
+    }
+  }
+  // Выбранная игра могла пропасть отовсюду: показываем её, иначе непонятно, что включено.
+  const saved = soloSaved(platform);
+  if (saved && !rows.has(saved)) {
+    const remembered = platform === "twitch" && String(latest?.soloGameId || "") === saved ? latest?.soloGameName || "" : "";
+    rows.set(saved, { id: saved, name: remembered || saved, categoryId: platform === "kick" ? Number(settings.soloKickCat) || 0 : 0, meta: L("noCampaignNow") });
   }
   return rows;
 }
 
+// Тот же поиск, что во вкладке Priority: просто вхождение в название игры, без словарей
+// синонимов. «gta» не найдёт Grand Theft Auto — искать надо по её настоящему имени.
+function soloMatches(game, query) {
+  const needle = query.trim().toLowerCase();
+  return !needle || game.name.toLowerCase().includes(needle);
+}
+
+function soloRow(game, saved, platform) {
+  return `
+    <button type="button" class="game solo-game${game.id === saved ? " on" : ""}" data-solo="${escapeHtml(game.id)}" data-cat="${Number(game.categoryId) || 0}" data-platform="${platform}">
+      <span><strong>${escapeHtml(game.name)}</strong>${game.meta ? `<small>${escapeHtml(game.meta)}</small>` : ""}</span>
+      <span class="check"></span>
+    </button>`;
+}
+
+function renderSoloList(platform) {
+  const [, , , filterId, listId] = soloIds(platform);
+  const box = $(listId);
+  if (!box) return;
+  const options = soloOptions(platform);
+  const saved = soloSaved(platform);
+  const query = soloQuery[platform].trim().toLowerCase();
+  const entries = [...options.values()].sort((left, right) => left.name.localeCompare(right.name, "ru"));
+  const shown = query
+    ? entries.filter((game) => soloMatches(game, query))
+    : entries.filter((game) => game.id === saved);
+  const off = `<button type="button" class="game solo-game${saved ? "" : " on"}" data-solo="" data-platform="${platform}"><span><strong>${escapeHtml(L("soloOff"))}</strong></span><span class="check"></span></button>`;
+  // «Выключено» и текущий выбор видны всегда, остальное — по поиску: иначе список из сотни
+  // игр пришлось бы листать, как в прежнем <select>.
+  // Пустой список Kick — не поломка: он ждёт первого прохода или выбора в Priority.
+  const hint = query
+    ? (shown.length ? "" : `<p class="empty">${escapeHtml(L("noSuchGame"))}</p>`)
+    : (saved ? "" : `<p class="empty">${escapeHtml(L(platform === "kick" && !options.size ? "soloKickWaiting" : "soloSearchHint"))}</p>`);
+  setHtml(box, query
+    ? shown.map((game) => soloRow(game, saved, platform)).join("") + hint
+    : off + shown.map((game) => soloRow(game, saved, platform)).join("") + hint);
+  $(filterId).placeholder = L("soloSearch");
+}
+
 function paintSolo() {
-  for (const platform of ["twitch", "kick"]) {
-    const box = $(platform === "kick" ? "solo-kick" : "solo-twitch");
-    if (!box) continue;
-    const saved = String(platform === "kick" ? settings.soloKick : settings.soloTwitch) || "";
-    const rows = soloGames(platform);
-    // Выбранная игра могла пропасть из списка: показываем её, иначе непонятно, что включено.
-    if (saved && !rows.has(saved)) rows.set(saved, saved);
-    const list = [...rows.entries()].sort((left, right) => left[1].localeCompare(right[1]));
-    // Список переписываем только когда он правда изменился: иначе открытый выпадающий список
-    // закрывался бы на каждом обновлении состояния раз в минуту.
-    const key = JSON.stringify([L("soloOff"), list, saved]);
-    if (box.dataset.key === key) continue;
-    box.dataset.key = key;
-    box.innerHTML = `<option value="">${escapeHtml(L("soloOff"))}</option>`
-      + list.map(([id, name]) => `<option value="${escapeHtml(id)}"${id === saved ? " selected" : ""}>${escapeHtml(name)}</option>`).join("");
-  }
   $("solo-twitch-label").textContent = L("soloTwitch");
   $("solo-twitch-hint").textContent = L("soloTwitchHint");
   $("solo-kick-label").textContent = L("soloKick");
   $("solo-kick-hint").textContent = L("soloKickHint");
+  for (const platform of ["twitch", "kick"]) {
+    const [pickId, valueId, findId] = soloIds(platform);
+    const pick = $(pickId);
+    if (!pick) continue;
+    const saved = soloSaved(platform);
+    const remembered = platform === "twitch" && String(latest?.soloGameId || "") === saved ? latest?.soloGameName || "" : "";
+    const label = saved ? soloOptions(platform).get(saved)?.name || remembered || saved : L("soloOff");
+    $(valueId).textContent = label;
+    pick.title = label;
+    pick.classList.toggle("on", Boolean(saved));
+    pick.setAttribute("aria-expanded", soloOpen[platform] ? "true" : "false");
+    pick.setAttribute("aria-label", `${L(platform === "kick" ? "soloKick" : "soloTwitch")}: ${label}`);
+    $(findId).classList.toggle("hidden", !soloOpen[platform]);
+    renderSoloList(platform);
+  }
 }
 
 function paintCases() {
@@ -1665,8 +1749,37 @@ function renderCases(state) {
   paintCases();
 }
 
-$("solo-twitch").addEventListener("change", (event) => saveSettings({ soloTwitch: event.target.value }));
-$("solo-kick").addEventListener("change", (event) => saveSettings({ soloKick: event.target.value }));
+// «Одна игра»: клик по строке раскрывает поиск, выбор игры сразу сохраняется и закрывает список.
+for (const platform of ["twitch", "kick"]) {
+  const [pickId, , , filterId, listId] = soloIds(platform);
+  $(pickId).addEventListener("click", () => {
+    const open = !soloOpen[platform];
+    soloOpen[platform] = open;
+    // Второй список закрываем: две открытые панели поиска в настройках только мешают.
+    soloOpen[platform === "kick" ? "twitch" : "kick"] = false;
+    if (open) {
+      soloQuery[platform] = "";
+      $(filterId).value = "";
+    }
+    paintSolo();
+    if (open) $(filterId).focus();
+  });
+  $(filterId).addEventListener("input", (event) => {
+    soloQuery[platform] = event.target.value;
+    renderSoloList(platform);
+  });
+  $(listId).addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-solo]");
+    if (!button) return;
+    const value = button.dataset.solo || "";
+    soloOpen[platform] = false;
+    soloQuery[platform] = "";
+    $(filterId).value = "";
+    // Категория запоминается вместе с названием: Kick не умеет искать её по имени, а кампании
+    // игры могут закончиться — без id соло-режим не нашёл бы ни одного эфира.
+    saveSettings(platform === "kick" ? { soloKick: value, soloKickCat: Number(button.dataset.cat) || 0 } : { soloTwitch: value });
+  });
+}
 
 $("cases-toggle").addEventListener("click", async () => {
   const on = casesState?.enabled === false;

@@ -218,3 +218,34 @@ test("kick solo: без категории и без кампаний — чес
   assert.equal(state.watching, null);
   assert.equal(sockets.length, 0);
 });
+
+test("kick solo: категория из настроек подхватывается, когда кампаний игры уже нет", async () => {
+  resetKick();
+  net["drops/campaigns"] = { data: [] };
+  store.local.settings = { soloKick: "Rust", soloKickCat: 13 };
+  store.local.kick = { enabled: true };
+  const state = await kick.kickTick();
+  assert.equal(state.phase, "watching");
+  assert.equal(state.watching.solo, true);
+  assert.equal(state.watching.login, "streamer");
+  assert.equal(state.soloCategory, 13);
+  kick.stopWatch();
+});
+
+test("kick solo: состояние несёт id категории игры, чтобы попап запомнил её при выборе", async () => {
+  resetKick();
+  const state = await kick.kickTick();
+  assert.equal(state.games[0].name, "Rust");
+  assert.equal(state.games[0].categoryId, 13);
+  kick.stopWatch();
+});
+
+test("kick solo: без категории сообщение просит выбрать игру заново", async () => {
+  resetKick();
+  net["drops/campaigns"] = { data: [] };
+  const state = await kick.kickTick();
+  assert.equal(state.phase, "no-channel");
+  // Сообщение — метка для попапа, а не готовый текст: важны ключ и игра.
+  assert.match(state.message, /soloNoCategory/);
+  assert.match(state.message, /Rust/);
+});
