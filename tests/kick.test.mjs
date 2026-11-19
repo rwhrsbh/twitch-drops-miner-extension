@@ -45,7 +45,7 @@ globalThis.fetch = async (url, init = {}) => {
   const hit = Object.entries(net).find(([key]) => String(url).includes(key));
   if (!hit) return new Response("{}", { status: 404 });
   const [, value] = hit;
-  const out = typeof value === "function" ? value(init) : value;
+  const out = typeof value === "function" ? value(init, String(url)) : value;
   return new Response(JSON.stringify(out.body ?? out), { status: out.status ?? 200 });
 };
 
@@ -113,6 +113,134 @@ test("claims finished reward", async () => {
   assert.ok(claim);
   assert.deepEqual(JSON.parse(claim.init.body), { reward_id: "r1", campaign_id: "c1" });
   assert.match(s.log[0].text, /kickClaimed/);
+  kick.stopWatch();
+});
+
+test("кейс: нечего фармить, но кейсу нужны минуты — смотрю любой эфир", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  net["api/v2/channels/"] = { id: 5, livestream: { id: 99, categories: [{ id: 13 }], viewer_count: 10 } };
+  store.local.kickCases = { enabled: true, accounts: { current: { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  const s = await kick.kickTick();
+  assert.equal(s.phase, "watching");
+  assert.equal(s.watching.case, true);
+  assert.equal(s.watching.name, "Sunset Reward Case");
+  assert.equal(s.watching.current, 40);
+  assert.equal(s.watching.required, 180);
+  assert.equal(sockets.length, 1);
+  kick.stopWatch();
+});
+
+test("кейс: выключенный тумблер — ради кейса не смотрим", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  store.local.kickCases = { enabled: false, accounts: { current: { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  const s = await kick.kickTick();
+  assert.equal(s.phase, "all-claimed");
+  assert.equal(s.watching, null);
+  assert.equal(sockets.length, 0);
+});
+
+test("кейс: дроп без живых каналов не рвёт кейс-сокет", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  net["api/v2/channels/"] = { id: 5, livestream: { id: 99, categories: [{ id: 13 }], viewer_count: 10 } };
+  store.local.kickCases = { enabled: true, accounts: { current: { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  let s = await kick.kickTick();
+  assert.equal(s.watching.case, true);
+  assert.equal(sockets.length, 1);
+  // Дроп снова доступен, но каналов в эфире нет: смотрим дальше ради кейса тем же сокетом.
+  net["drops/progress"] = { data: [] };
+  net["livestreams"] = { data: { livestreams: [] } };
+  s = await kick.kickTick();
+  assert.equal(s.watching.case, true);
+  assert.equal(sockets.length, 1, "новый сокет не открывался");
+  kick.stopWatch();
+});
+
+test("кейс: выбор идёт по проверенному живому аккаунту, а не по state.user", async () => {
+  await resetAsync();
+  // state.user устарел (alice), но проход кейсов уже проверил, что живой — B.
+  // Логин проверялся раньше, чем проход кейсов записал живой аккаунт: верим liveId.
+  store.local.kick = { enabled: true, user: "alice", userAt: Date.now() - 60 * 1000 };
+  store.local.kickCases = {
+    enabled: true,
+    liveId: "B",
+    liveIdAt: Date.now(),
+    accounts: {
+      A: { login: "alice", items: [{ name: "Old Case", status: "in_progress", progress: 1, threshold: 999 }] },
+      B: { login: "bob", items: [{ name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 }] },
+    },
+  };
+  const row = await kick.kickCaseNeed();
+  assert.equal(row.name, "Sunset Reward Case", "берём кейс живого аккаунта");
+});
+
+test("кейс: свежий проверенный логин важнее устаревшего liveId", async () => {
+  await resetAsync();
+  // Проход кейсов записал A, а майнер только что проверил: в браузере bob (B).
+  store.local.kick = { enabled: true, user: "bob", userAt: Date.now() };
+  store.local.kickCases = {
+    enabled: true,
+    liveId: "A",
+    liveIdAt: Date.now() - 60 * 1000,
+    accounts: {
+      A: { login: "alice", items: [{ name: "Old Case", status: "in_progress", progress: 1, threshold: 999 }] },
+      B: { login: "bob", items: [{ name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 }] },
+    },
+  };
+  const row = await kick.kickCaseNeed();
+  assert.equal(row.name, "Sunset Reward Case", "liveId прошлого прохода не перебивает свежий логин");
+});
+
+test("кейс: просроченный или не про минуты не фармим", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  store.local.kickCases = { enabled: true, accounts: { current: { items: [
+    { name: "Old Case", status: "in_progress", progress: 40, threshold: 180, endsAt: Date.now() - 1000 },
+  ] } } };
+  let s = await kick.kickTick();
+  assert.equal(s.phase, "all-claimed");
+  assert.equal(sockets.length, 0);
+  store.local.kickCases.accounts.current.items = [
+    { name: "Watch Streams", status: "in_progress", progress: 1, threshold: 5, type: "watch_streams" },
+  ];
+  s = await kick.kickTick();
+  assert.equal(s.phase, "all-claimed");
+  assert.equal(sockets.length, 0);
+});
+
+test("кейс: дропов нет и кейса нет — стоим, как раньше", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  const s = await kick.kickTick();
+  assert.equal(s.phase, "all-claimed");
+  assert.equal(s.watching, null);
+  assert.equal(sockets.length, 0);
+});
+
+test("соло: дроп ждёт канал, сокет соло-эфира не пересоздаётся", async () => {
+  await resetAsync();
+  // Эксклюзивный дроп: его канал офлайн, зато в категории есть другой живой эфир.
+  net["drops/campaigns"] = { data: [campaign({ channels: [{ slug: "streamer" }] })] };
+  net["api/v2/channels/"] = (init, url) => (String(url).includes("streamer")
+    ? { id: 5, livestream: null }
+    : { id: 6, livestream: { id: 100, categories: [{ id: 13 }], viewer_count: 5 } });
+  net["livestreams"] = { data: { livestreams: [{ id: "01a0-uuid", channel: { id: 6, slug: "other" } }] } };
+  store.local.settings = { soloKick: "Rust" };
+  let state = await kick.kickTick();
+  assert.equal(state.watching.solo, true, "смотрим другой эфир игры");
+  assert.equal(sockets.length, 1);
+  await kick.kickTick();
+  await kick.kickTick();
+  assert.equal(sockets.length, 1, "сокет тот же, дроп всё ещё ждёт канал");
+  assert.notEqual(sockets[0].readyState, 3, "старый сокет не закрыт");
   kick.stopWatch();
 });
 

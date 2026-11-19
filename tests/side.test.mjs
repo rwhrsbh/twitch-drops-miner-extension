@@ -79,6 +79,11 @@ globalThis.fetch = async (url, init = {}) => {
     return json({ message: "Success" });
   }
   if (target.includes("/gamification/challenges")) return json({ data: [] });
+  const anyLive = /livestreams\?limit=\d+&sort=viewer_count_desc$/.test(target);
+  if (anyLive) {
+    const rows = Object.entries(channels).filter(([, row]) => row.live);
+    return json({ data: { livestreams: rows.map(([slug, row]) => ({ id: row.stream, channel: { slug, id: row.id } })) } });
+  }
   const list = /livestreams\?.*category_id=(\d+)/.exec(target);
   if (list) {
     const rows = Object.entries(channels).filter(([, row]) => row.live && row.category === Number(list[1]));
@@ -103,6 +108,7 @@ const { FEATURES } = await import("../lib/constants.js");
 FEATURES.kickPoints = true;
 const kickSide = await import("../lib/kickside.js");
 const side = await import("../lib/side.js");
+const miner = await import("../lib/miner.js");
 const history = await import("../lib/history.js");
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -292,6 +298,194 @@ test("twitch: клик по дропу в очереди второго акка
   assert.deepEqual(Object.keys(await side.watchSideDrop("nope", "x")), ["2"], "чужой id ничего не создаёт");
 });
 
+test("kick: нечего фармить, но у аккаунта есть кейс — смотрит любой эфир", async () => {
+  await reset();
+  users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  const out = await kickSide.kickSideTick();
+  assert.equal(out["2"].phase, "watching");
+  assert.equal(out["2"].watching.case, true);
+  assert.equal(out["2"].watching.name, "Sunset Reward Case");
+  assert.equal(out["2"].watching.required, 180);
+  assert.equal(sockets.length, 1);
+  // Второй проход: канал в эфире, кейсу всё ещё нужны минуты — тот же сокет, а не новый.
+  await kickSide.kickSideTick();
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].closed, false);
+});
+
+test("kick: аккаунт без выбранных игр всё равно смотрит ради кейса", async () => {
+  await reset();
+  store.local.accounts.kick.list[1].picked = [];
+  store.local.settings.autoAll = false;
+  users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  const out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.case, true, "кейс важнее пустого выбора игр");
+  assert.equal(sockets.length, 1);
+});
+
+test("kick: появившийся дроп важнее кейс-эфира у побочного аккаунта", async () => {
+  await reset();
+  users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  let out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.case, true);
+  // Дроп снова доступен и канал в эфире: кейс-эфир уступает.
+  users["2|b"].progress = {};
+  out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.dropId, "r1");
+  assert.ok(!out["2"].watching.case);
+});
+
+test("kick: появившийся дроп важнее соло-эфира у побочного аккаунта", async () => {
+  await reset();
+  store.local.settings.soloKick = "Apex";
+  store.local.kick = { enabled: true, user: "main", soloGame: "Apex", soloCategory: 1 };
+  let out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.solo, true, "эфир ради соло-игры");
+  // У выбранной игры появилась кампания и живой канал.
+  store.local.settings.soloKick = "Rust";
+  out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.dropId, "r1");
+});
+
+test("kick: дроп ждёт канал, кейс-сокет побочного аккаунта не пересоздаётся", async () => {
+  await reset();
+  channels.rusty.live = false;
+  channels.rusty2.live = false;
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  await kickSide.kickSideTick();
+  await kickSide.kickSideTick();
+  await kickSide.kickSideTick();
+  assert.equal(sockets.length, 1, "один сокет на три прохода");
+  assert.equal(sockets[0].closed, false);
+});
+
+test("kick: кейса нет и фармить нечего — сокет закрыт", async () => {
+  await reset();
+  users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };
+  const out = await kickSide.kickSideTick();
+  assert.equal(out["2"].phase, "all-claimed");
+  assert.equal(sockets.length, 0);
+});
+
+test("kick solo: параллельный аккаунт фармит выбранную игру, его собственный выбор не в счёт", async () => {
+  await reset();
+  store.local.settings.soloKick = "Rust";
+  // У аккаунта выбран Dota, но соло-настройка сильнее: фармится Rust.
+  store.local.accounts.kick.list[1].picked = ["Dota 2"];
+  const out = await kickSide.kickSideTick();
+  assert.equal(out["2"].watching.game, "Rust");
+  assert.equal(out["2"].watching.login, "rusty");
+  assert.ok(out["2"].queue.every((row) => row.game === "Rust"), "очередь только из этой игры");
+});
+
+test("kick solo: без кампаний смотрим любой эфир игры по категории основного майнера", async () => {
+  await reset();
+  store.local.settings.soloKick = "Apex";
+  store.local.kick = { enabled: true, user: "main", soloGame: "Apex", soloCategory: 1 };
+  const out = await kickSide.kickSideTick();
+  assert.equal(out["2"].phase, "watching");
+  assert.equal(out["2"].watching.solo, true);
+  assert.equal(out["2"].watching.login, "chat", "канал из категории игры");
+  assert.equal(sockets.length, 1);
+});
+
+test("kick solo: соло-сокет не перезапускается каждую минуту", async () => {
+  await reset();
+  store.local.settings.soloKick = "Apex";
+  store.local.kick = { enabled: true, user: "main", soloGame: "Apex", soloCategory: 1 };
+  await kickSide.kickSideTick();
+  await kickSide.kickSideTick();
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].closed, false);
+});
+
+// Заглушка GraphQL: инвентарь пуст, канал alice в эфире в игре g1.
+function twitchGql() {
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    if (target.includes("gql.twitch.tv")) {
+      const payload = JSON.parse(init.body || "{}");
+      const operation = (Array.isArray(payload) ? payload[0] : payload)?.operationName;
+      const json = (body) => new Response(JSON.stringify(body), { status: 200 });
+      if (operation === "Inventory") return json({ data: { currentUser: { inventory: { dropCampaignsInProgress: [] } } } });
+      if (operation === "VideoPlayerStreamInfoOverlayChannel") {
+        return json({ data: { user: { login: "alice", id: "1", stream: { id: "s1" }, broadcastSettings: { game: { id: "g1", displayName: "Rust" } } } } });
+      }
+      return json({ data: {} });
+    }
+    return inner(url, init);
+  };
+  return () => { globalThis.fetch = inner; };
+}
+
+test("twitch solo: устаревший каталог не останавливает параллельный аккаунт", async () => {
+  await twitchReset();
+  store.local.settings.soloTwitch = "g1";
+  store.local.soloHint = { gameId: "g1", name: "Rust", login: "alice", kind: "any", at: Date.now() };
+  // Каталог старше 10 минут: раньше это давало «waiting» и аккаунт стоял.
+  miner.seedCatalog([], Date.now() - 11 * 60 * 1000);
+  const restore = twitchGql();
+  try {
+    await side.sideTick();
+    assert.notEqual(store.local.side["2"].phase, "waiting");
+    assert.equal(store.local.side["2"].watching.solo, true);
+    assert.equal(store.local.side["2"].watching.login, "alice");
+  } finally {
+    restore();
+  }
+});
+
+test("twitch solo: второй аккаунт держит канал, который нашёл основной майнер", async () => {
+  await twitchReset();
+  store.local.settings.soloTwitch = "g1";
+  store.local.soloHint = { gameId: "g1", name: "Rust", login: "alice", kind: "drops", at: Date.now() };
+  miner.seedCatalog([{
+    id: "c1", name: "Rust drops", linked: true, game: { id: "g1", name: "Rust", slug: "rust", image: "" }, channels: [],
+    drops: [{
+      id: "d1", name: "Skin", benefits: ["Skin"], benefitIds: [], required: 60, current: 60, claimed: true,
+      channels: [], preconditionIds: [], campaignId: "c1", campaignName: "Rust drops", game: { id: "g1", name: "Rust" },
+    }],
+  }]);
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    if (target.includes("gql.twitch.tv")) {
+      const payload = JSON.parse(init.body || "{}");
+      const operation = (Array.isArray(payload) ? payload[0] : payload)?.operationName;
+      const json = (body) => new Response(JSON.stringify(body), { status: 200 });
+      if (operation === "Inventory") return json({ data: { currentUser: { inventory: { dropCampaignsInProgress: [] } } } });
+      if (operation === "VideoPlayerStreamInfoOverlayChannel") {
+        return json({ data: { user: { login: "alice", id: "1", stream: { id: "s1" }, broadcastSettings: { game: { id: "g1", displayName: "Rust" } } } } });
+      }
+      return json({ data: {} });
+    }
+    return inner(url, init);
+  };
+  try {
+    const result = await side.sideTick();
+    assert.deepEqual(result, {}, "аккаунт менять не просит");
+    const slot = store.local.side["2"];
+    assert.equal(slot.watching.solo, true, "минуты идут не за дропом, а за игрой");
+    assert.equal(slot.watching.login, "alice");
+    assert.equal(slot.watching.gameId, "g1");
+    assert.equal(slot.queue.length, 1, "очередь игры в попапе");
+  } finally {
+    globalThis.fetch = inner;
+  }
+});
+
 // ---- Находки ревью ----
 
 const baseFetch = globalThis.fetch;
@@ -316,6 +510,21 @@ test("kick: запросы чужого аккаунта идут без кук 
   const mine = sent.filter((item) => item.bearer === "2|b");
   assert.ok(mine.length >= 4, "кампании, прогресс, токен зрителя, баланс");
   assert.deepEqual([...new Set(mine.map((item) => item.credentials))], ["omit"]);
+});
+
+test("kick: чужой аккаунт ходит за эфирами без кук браузера", async () => {
+  await reset();
+  users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  sent.length = 0;
+  await kickSide.kickSideTick();
+  // Второй проход проверяет «канал ещё в эфире» — это тоже карточка чужого аккаунта.
+  await kickSide.kickSideTick();
+  const streams = sent.filter((item) => /livestreams|api\/v2\/channels/.test(item.target));
+  assert.ok(streams.length > 1, "список эфиров и карточки запрошены несколько раз");
+  assert.deepEqual([...new Set(streams.map((item) => item.credentials))], ["omit"]);
 });
 
 test("kick: клик по дропу посреди прохода не теряется", async () => {
