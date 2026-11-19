@@ -133,6 +133,18 @@ test("кейс: нечего фармить, но кейсу нужны мину
   kick.stopWatch();
 });
 
+test("кейс: выключенный тумблер — ради кейса не смотрим", async () => {
+  await resetAsync();
+  net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };
+  store.local.kickCases = { enabled: false, accounts: { current: { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  const s = await kick.kickTick();
+  assert.equal(s.phase, "all-claimed");
+  assert.equal(s.watching, null);
+  assert.equal(sockets.length, 0);
+});
+
 test("кейс: дропов нет и кейса нет — стоим, как раньше", async () => {
   await resetAsync();
   net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };

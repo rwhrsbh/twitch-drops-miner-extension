@@ -1589,6 +1589,11 @@ function paintSolo() {
     // Выбранная игра могла пропасть из списка: показываем её, иначе непонятно, что включено.
     if (saved && !rows.has(saved)) rows.set(saved, saved);
     const list = [...rows.entries()].sort((left, right) => left[1].localeCompare(right[1]));
+    // Список переписываем только когда он правда изменился: иначе открытый выпадающий список
+    // закрывался бы на каждом обновлении состояния раз в минуту.
+    const key = JSON.stringify([L("soloOff"), list, saved]);
+    if (box.dataset.key === key) continue;
+    box.dataset.key = key;
     box.innerHTML = `<option value="">${escapeHtml(L("soloOff"))}</option>`
       + list.map(([id, name]) => `<option value="${escapeHtml(id)}"${id === saved ? " selected" : ""}>${escapeHtml(name)}</option>`).join("");
   }
@@ -1660,7 +1665,12 @@ $("cases-list").addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-case]");
   if (!button) return;
   button.disabled = true;
-  renderCases(await send({ type: "openKickCase", id: button.dataset.case, account: button.dataset.acc }));
+  // Service worker мог только что уснуть: без finally кнопка осталась бы выключенной навсегда.
+  try {
+    renderCases(await send({ type: "openKickCase", id: button.dataset.case, account: button.dataset.acc }));
+  } finally {
+    button.disabled = false;
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {

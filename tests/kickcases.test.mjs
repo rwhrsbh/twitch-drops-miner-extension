@@ -233,6 +233,37 @@ test("второй аккаунт открывает свои кейсы сво�
   assert.ok(history.some((item) => item.account !== "second"), "история аккаунта браузера тоже есть");
 });
 
+test("кнопка «Открыть» не открывает кейс чужого аккаунта", async () => {
+  reset();
+  net["gamification/challenges"] = { data: [{ ...sunset, status: "claimable" }] };
+  await cases.setKickCasesEnabled(false);
+  await cases.kickCasesTick({ force: true });
+  const before = calls.filter((call) => call.url.includes("/claim")).length;
+  const state = await cases.openKickCase(sunset.id, "нет-такого-аккаунта");
+  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, before, "клейма не было");
+  assert.equal(state.accounts.current.items[0].status, "claimable");
+});
+
+test("два прохода сразу не открывают кейс дважды", async () => {
+  reset();
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { data: { winner: { rarity: "rare" } } }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  await Promise.all([cases.kickCasesTick({ force: true }), cases.kickCasesTick({ force: true })]);
+  assert.equal(calls.filter((call) => call.url.includes("/claim")).length, 1);
+  assert.equal((store.local.history || []).length, 1);
+});
+
+test("плоский ответ на клейм тоже понимаем", async () => {
+  reset();
+  net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
+    ? { challenge_id: sunset.id, reveal_type: "instant", winner: { rarity: "mythic" } }
+    : { data: [{ ...sunset, status: "claimable" }] });
+  const state = await cases.kickCasesTick({ force: true });
+  assert.equal(state.accounts.current.items[0].rarity, "mythic");
+  assert.equal((store.local.history || [])[0].name, "Sunset Reward Case · mythic");
+});
+
 test("переключатель сохраняется", async () => {
   reset();
   const off = await cases.setKickCasesEnabled(false);

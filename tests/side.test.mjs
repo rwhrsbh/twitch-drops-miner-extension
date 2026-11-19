@@ -310,6 +310,10 @@ test("kick: нечего фармить, но у аккаунта есть ке�
   assert.equal(out["2"].watching.name, "Sunset Reward Case");
   assert.equal(out["2"].watching.required, 180);
   assert.equal(sockets.length, 1);
+  // Второй проход: канал в эфире, кейсу всё ещё нужны минуты — тот же сокет, а не новый.
+  await kickSide.kickSideTick();
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].closed, false);
 });
 
 test("kick: кейса нет и фармить нечего — сокет закрыт", async () => {
@@ -350,6 +354,43 @@ test("kick solo: соло-сокет не перезапускается каж�
   await kickSide.kickSideTick();
   assert.equal(sockets.length, 1);
   assert.equal(sockets[0].closed, false);
+});
+
+// Заглушка GraphQL: инвентарь пуст, канал alice в эфире в игре g1.
+function twitchGql() {
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    if (target.includes("gql.twitch.tv")) {
+      const payload = JSON.parse(init.body || "{}");
+      const operation = (Array.isArray(payload) ? payload[0] : payload)?.operationName;
+      const json = (body) => new Response(JSON.stringify(body), { status: 200 });
+      if (operation === "Inventory") return json({ data: { currentUser: { inventory: { dropCampaignsInProgress: [] } } } });
+      if (operation === "VideoPlayerStreamInfoOverlayChannel") {
+        return json({ data: { user: { login: "alice", id: "1", stream: { id: "s1" }, broadcastSettings: { game: { id: "g1", displayName: "Rust" } } } } });
+      }
+      return json({ data: {} });
+    }
+    return inner(url, init);
+  };
+  return () => { globalThis.fetch = inner; };
+}
+
+test("twitch solo: устаревший каталог не останавливает параллельный аккаунт", async () => {
+  await twitchReset();
+  store.local.settings.soloTwitch = "g1";
+  store.local.soloHint = { gameId: "g1", name: "Rust", login: "alice", kind: "any", at: Date.now() };
+  // Каталог старше 10 минут: раньше это давало «waiting» и аккаунт стоял.
+  miner.seedCatalog([], Date.now() - 11 * 60 * 1000);
+  const restore = twitchGql();
+  try {
+    await side.sideTick();
+    assert.notEqual(store.local.side["2"].phase, "waiting");
+    assert.equal(store.local.side["2"].watching.solo, true);
+    assert.equal(store.local.side["2"].watching.login, "alice");
+  } finally {
+    restore();
+  }
 });
 
 test("twitch solo: второй аккаунт держит канал, который нашёл основной майнер", async () => {
@@ -415,6 +456,19 @@ test("kick: запросы чужого аккаунта идут без кук 
   const mine = sent.filter((item) => item.bearer === "2|b");
   assert.ok(mine.length >= 4, "кампании, прогресс, токен зрителя, баланс");
   assert.deepEqual([...new Set(mine.map((item) => item.credentials))], ["omit"]);
+});
+
+test("kick: чужой аккаунт ходит за эфирами без кук браузера", async () => {
+  await reset();
+  users["2|b"].progress = { r1: { progress: 1, claimed: true }, r2: { progress: 1, claimed: true } };
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  sent.length = 0;
+  await kickSide.kickSideTick();
+  const streams = sent.filter((item) => /livestreams|api\/v2\/channels/.test(item.target));
+  assert.ok(streams.length > 0, "список эфиров и карточка запрошены");
+  assert.deepEqual([...new Set(streams.map((item) => item.credentials))], ["omit"]);
 });
 
 test("kick: клик по дропу посреди прохода не теряется", async () => {

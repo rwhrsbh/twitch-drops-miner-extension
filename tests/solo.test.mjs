@@ -70,7 +70,8 @@ function resetKick() {
     "kick.com/api/v1/user": { username: "me" },
     "drops/campaigns": { data: [campaign()] },
     "drops/progress": { data: [] },
-    "livestreams": { data: { livestreams: [{ id: 99, channel: { id: 5, slug: "streamer" } }] } },
+    // Как у живого Kick: список эфиров отдаёт UUID трансляции, числовой id есть только в карточке.
+    "livestreams": { data: { livestreams: [{ id: "01a0-uuid-stream", channel: { id: 5, slug: "streamer" } }] } },
     "api/v2/channels/": { id: 5, livestream: { id: 99, categories: [{ id: 13 }], viewer_count: 10 } },
   };
 }
@@ -132,6 +133,19 @@ test("kick solo: без кампании смотрим любой эфир иг
   assert.equal(sockets.length, 1);
   assert.match(sockets[0].url, /viewer\/v1\/connect/);
   assert.equal(state.soloCategory, 13);
+  kick.stopWatch();
+});
+
+test("kick solo: в сокет уходит числовой livestream id из карточки, а не UUID из списка", async () => {
+  resetKick();
+  net["drops/campaigns"] = { data: [] };
+  store.local.kick = { enabled: true, soloCategory: 13, soloGame: "Rust" };
+  await kick.kickTick();
+  assert.equal(sockets.length, 1);
+  sockets[0].onopen();
+  const watch = sockets[0].sent.find((message) => message.type === "user_event");
+  assert.equal(watch.data.message.livestream_id, 99, "числовой id из карточки");
+  assert.equal(watch.data.message.channel_id, 5);
   kick.stopWatch();
 });
 

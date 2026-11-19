@@ -176,6 +176,8 @@ test("новый эфир того же канала: сокет переотк�
 test("ежедневная награда забирается один раз и попадает в историю", async () => {
   await reset();
   await history.clearHistory();
+  // Кейсы выключены: только тогда дейли-награду забирает этот модуль, а не lib/kickcases.js.
+  store.local.kickCases = { enabled: false };
   challenges = [
     { id: "c1", status: "claimable", name: "Daily Reward", window: { ends_at: "2026-10-11" } },
     { id: "c2", status: "in_progress" },

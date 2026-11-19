@@ -250,7 +250,6 @@ const readers = {
   getKickSide: () => readKickSide(),
   getKickPoints: () => readKickPoints(),
   getKickCases: () => readKickCases(),
-  kickCasesTick: () => kickCasesTick({ force: true }),
   searchKickChannels: async (message) => {
     try {
       return { items: await searchKickChannels(message.query) };
