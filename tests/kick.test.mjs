@@ -164,6 +164,22 @@ test("кейс: дроп без живых каналов не рвёт кейс
   kick.stopWatch();
 });
 
+test("кейс: выбор идёт по проверенному живому аккаунту, а не по state.user", async () => {
+  await resetAsync();
+  // state.user устарел (alice), но проход кейсов уже проверил, что живой — B.
+  store.local.kick = { enabled: true, user: "alice" };
+  store.local.kickCases = {
+    enabled: true,
+    liveId: "B",
+    accounts: {
+      A: { login: "alice", items: [{ name: "Old Case", status: "in_progress", progress: 1, threshold: 999 }] },
+      B: { login: "bob", items: [{ name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 }] },
+    },
+  };
+  const row = await kick.kickCaseNeed();
+  assert.equal(row.name, "Sunset Reward Case", "берём кейс живого аккаунта");
+});
+
 test("кейс: просроченный или не про минуты не фармим", async () => {
   await resetAsync();
   net["drops/progress"] = { data: [{ id: "c1", rewards: [{ id: "r1", progress: 1, claimed: true }] }] };

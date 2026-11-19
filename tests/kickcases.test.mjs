@@ -417,6 +417,69 @@ test("устаревший kick.user не превращается в двойн
   assert.equal(history.filter((item) => item.account === "bob").length, 1);
 });
 
+test("логин живой куки спрашивается один раз", async () => {
+  reset();
+  store.local.kick = { user: "alice", enabled: true };
+  store.local.accounts = {
+    kick: { active: "A", list: [{ id: "A", login: "alice" }, { id: "B", login: "bob" }] },
+    twitch: { active: "", list: [] },
+    rotate: { mode: "all", limit: 1 },
+  };
+  store.local.accountCookies = {
+    kick: { A: [{ name: "session_token", value: "tokA" }], B: [{ name: "session_token", value: "tokB" }] },
+    twitch: {},
+  };
+  // Первый ответ — bob, второй (если бы он был) — отказ.
+  let asked = 0;
+  net["kick.com/api/v1/user"] = () => {
+    asked += 1;
+    return asked === 1 ? { username: "bob" } : { status: 500, body: {} };
+  };
+  // Клеймит только живой аккаунт: у сохранённого A кейс ещё не набран.
+  net["gamification/challenges"] = (init, url) => {
+    if (String(url).includes("/claim")) return { data: { winner: { rarity: "rare" } } };
+    const foreign = String(init.headers?.Authorization || "").includes("tokA");
+    return { data: [{ ...sunset, id: foreign ? "a-case" : sunset.id, status: foreign ? "in_progress" : "claimable" }] };
+  };
+  await cases.kickCasesTick({ force: true });
+  assert.equal(asked, 1, "один запрос логина");
+  const history = store.local.history || [];
+  assert.equal(history.filter((item) => item.account === "bob").length, 1, "клейм записан на живой аккаунт");
+  assert.equal(history.filter((item) => item.account === "alice").length, 0, "чужое имя в историю не попало");
+});
+
+test("истёкший аккаунт сохраняет отметки и помечается необслуживаемым", async () => {
+  reset();
+  store.local.accounts = {
+    kick: { active: "k1", list: [{ id: "k1", login: "one" }, { id: "k2", login: "two", expired: true }] },
+    twitch: { active: "", list: [] },
+    rotate: { mode: "all", limit: 1 },
+  };
+  store.local.accountCookies = {
+    kick: { k1: [{ name: "session_token", value: "tok1" }], k2: [{ name: "session_token", value: "tok2" }] },
+    twitch: {},
+  };
+  store.local.kickCases = { enabled: true, accounts: { k2: { login: "two", items: [], opened: { "x|1": { at: 1 } }, failed: {}, checkedAt: 1 } } };
+  const state = await cases.kickCasesTick({ force: true });
+  assert.ok(state.accounts.k2, "отметки истёкшего остались");
+  assert.equal(state.accounts.k2.served, false);
+  assert.equal(state.accounts.k2.opened["x|1"].at, 1);
+});
+
+test("ключ кейса считается по периоду: неделя и месяц", () => {
+  const weekly = { id: "w", recurrence: "weekly" };
+  const monday = new Date("2026-11-16T12:00:00Z");
+  const tuesday = new Date("2026-11-17T12:00:00Z");
+  const nextWeek = new Date("2026-11-24T12:00:00Z");
+  assert.equal(cases.caseKey(weekly, monday), cases.caseKey(weekly, tuesday), "та же неделя");
+  assert.notEqual(cases.caseKey(weekly, tuesday), cases.caseKey(weekly, nextWeek), "следующая неделя");
+  const monthly = { id: "m", recurrence: "monthly" };
+  assert.equal(cases.caseKey(monthly, monday), cases.caseKey(monthly, new Date("2026-11-30T23:00:00Z")));
+  assert.notEqual(cases.caseKey(monthly, monday), cases.caseKey(monthly, new Date("2026-12-01T00:00:00Z")));
+  const daily = { id: "d", recurrence: "daily" };
+  assert.notEqual(cases.caseKey(daily, monday), cases.caseKey(daily, tuesday));
+});
+
 test("204 с пустым телом — успешный клейм", async () => {
   reset();
   net["gamification/challenges"] = (init, url) => (String(url).includes("/claim")
