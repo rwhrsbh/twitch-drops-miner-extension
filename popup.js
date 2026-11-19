@@ -1631,14 +1631,19 @@ function caseRow(row, account) {
 
 function renderCases(state) {
   if (state) casesState = state;
-  const accounts = casesState?.accounts || {};
+  const all = casesState?.accounts || {};
+  // Необслуживаемые аккаунты (например, сохранённые при режиме «только вручную») не предлагаем.
+  const accounts = Object.fromEntries(Object.entries(all).filter(([, entry]) => entry.served !== false));
   const ids = Object.keys(accounts);
+  const hidden = Object.keys(all).length - ids.length;
   const open = ids.reduce((sum, id) => sum + (accounts[id].items || []).filter((row) => row.status !== "claimed").length, 0);
   const error = ids.map((id) => accounts[id].error || accounts[id].claimError).find(Boolean) || "";
   $("cases-title").textContent = L("casesTitle");
   $("cases-hint").textContent = error
     ? L("casesError", { reason: error })
-    : casesState?.notice === "account-gone" ? L("casesNoticeGone") : L("casesHint");
+    : casesState?.notice === "account-gone" ? L("casesNoticeGone")
+      : casesState?.notice === "not-served" ? L("casesNoticeMode")
+        : hidden ? L("casesNoticeHidden", { count: hidden }) : L("casesHint");
   $("cases-count").textContent = open ? String(open) : "";
   const blocks = ids.map((id) => {
     const rows = accounts[id].items || [];

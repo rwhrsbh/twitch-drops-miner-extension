@@ -193,6 +193,23 @@ test("kick solo: смена игры не продолжает фармить с
   assert.equal(sockets.length, 0);
 });
 
+test("kick solo: возврат к прежней игре находит её категорию без кампаний", async () => {
+  resetKick();
+  let state = await kick.kickTick();
+  assert.equal(state.watching.login, "streamer", "кампания Rust: категория 13 запомнена");
+  // Выбрали Apex, кампаний у него нет.
+  net["drops/campaigns"] = { data: [] };
+  store.local.settings = { soloKick: "Apex" };
+  state = await kick.kickTick();
+  assert.equal(state.watching, null);
+  // Вернулись к Rust — кампаний Rust тоже уже нет, но категория помнится.
+  store.local.settings = { soloKick: "Rust" };
+  state = await kick.kickTick();
+  assert.equal(state.watching.solo, true);
+  assert.equal(state.watching.login, "streamer");
+  assert.equal(state.soloCategories.rust, 13);
+});
+
 test("kick solo: без категории и без кампаний — честно «нет канала»", async () => {
   resetKick();
   net["drops/campaigns"] = { data: [] };
