@@ -466,8 +466,10 @@ test("kick: чужой аккаунт ходит за эфирами без ку
   ] } } };
   sent.length = 0;
   await kickSide.kickSideTick();
+  // Второй проход проверяет «канал ещё в эфире» — это тоже карточка чужого аккаунта.
+  await kickSide.kickSideTick();
   const streams = sent.filter((item) => /livestreams|api\/v2\/channels/.test(item.target));
-  assert.ok(streams.length > 0, "список эфиров и карточка запрошены");
+  assert.ok(streams.length > 1, "список эфиров и карточки запрошены несколько раз");
   assert.deepEqual([...new Set(streams.map((item) => item.credentials))], ["omit"]);
 });
 

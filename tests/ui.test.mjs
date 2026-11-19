@@ -56,7 +56,7 @@ test("новые строки режимов и кейсов действите�
   for (const key of ["soloTwitch", "soloKick", "soloOff", "soloFine", "soloLine", "soloLineDrops", "soloLineAny",
     "soloOffline", "casesTitle", "casesHint", "casesEmpty", "casesError", "casesOpen", "casesClaimed",
     "casesProgress", "casesToggle", "casesToggleHint"]) {
-    assert.ok(code.includes(`"${key}"`) || code.includes(key), "ключ " + key + " используется");
+    assert.ok(code.includes(`"${key}"`), "ключ " + key + " используется");
   }
 });
 

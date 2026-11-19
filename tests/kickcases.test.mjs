@@ -264,6 +264,16 @@ test("плоский ответ на клейм тоже понимаем", asyn
   assert.equal((store.local.history || [])[0].name, "Sunset Reward Case · mythic");
 });
 
+test("401 не долбит Kick каждые 90 секунд", async () => {
+  reset();
+  net["gamification/challenges"] = { status: 401, body: { message: "unauthorized" } };
+  const first = await cases.kickCasesTick({ force: true });
+  assert.match(first.accounts.current.error, /HTTP 401/);
+  const before = calls.length;
+  await cases.kickCasesTick();
+  assert.equal(calls.length, before, "следующая попытка отложена");
+});
+
 test("переключатель сохраняется", async () => {
   reset();
   const off = await cases.setKickCasesEnabled(false);
