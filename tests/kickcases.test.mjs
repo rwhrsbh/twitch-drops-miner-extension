@@ -56,6 +56,12 @@ globalThis.fetch = async (url, init = {}) => {
 const cases = await import("../lib/kickcases.js");
 const kick = await import("../lib/kick.js");
 
+// Окно кейса в фикстуре сдвинуто на сутки вперёд: тесты не должны протухать,
+// когда наступит дата из живого ответа. Всё остальное — поля настоящего ответа Kick.
+const WINDOW_END = Date.now() + 24 * 60 * 60 * 1000;
+const WINDOW_END_ISO = new Date(WINDOW_END).toISOString();
+const WINDOW_START_ISO = new Date(WINDOW_END - 24 * 60 * 60 * 1000).toISOString();
+
 const daily = {
   animations: { idle_url: "https://static.kick.com/rewards/daily-rewards/idle", unbox_url: "https://static.kick.com/rewards/daily-rewards/unbox" },
   claimed_at: "2026-11-19T02:32:06.392945Z",
@@ -67,7 +73,7 @@ const daily = {
   name: "Daily Reward",
   recurrence: "daily",
   status: "claimed",
-  window: { ends_at: "2026-11-20T00:00:00Z", starts_at: "2026-11-19T00:00:00Z" },
+  window: { ends_at: WINDOW_END_ISO, starts_at: WINDOW_START_ISO },
   winner: { card_url: "https://ext.cdn.kick.com/chat/emotes/cards/widepeepoSmile_Rare_card_9a7439a0f4384e1895bea01fb3a333d7.png", id: "x", rarity: "rare", thumbnail_url: "https://ext.cdn.kick.com/chat/emotes/shields/widepeepoSmile_Rare_shield_534aa9679c7a493ea7a1189fe78e22af.png" },
 };
 
@@ -82,7 +88,7 @@ const sunset = {
   recurrence: "daily",
   status: "in_progress",
   terms_and_conditions_url: "https://about.kick.com/news-and-press/13-sunset-reward-case",
-  window: { ends_at: "2026-11-20T00:00:00Z", starts_at: "2026-11-19T00:00:00Z" },
+  window: { ends_at: WINDOW_END_ISO, starts_at: WINDOW_START_ISO },
 };
 
 function reset() {
@@ -115,7 +121,7 @@ test("caseRows: строки из живого ответа, минуты под
   assert.equal(rows[0].animation, "https://static.kick.com/rewards/gta-vi-2611/idle.webm");
   assert.equal(rows[1].animation, "https://static.kick.com/rewards/daily-rewards/idle.webm");
   // Ключ попытки — id и конец окна: завтра у того же кейса новый ключ.
-  assert.equal(rows[0].key, "01a1c81b-e588-721b-9f82-95f7b5ce426b|" + Date.parse("2026-11-20T00:00:00Z"));
+  assert.equal(rows[0].key, "01a1c81b-e588-721b-9f82-95f7b5ce426b|" + Date.parse(WINDOW_END_ISO));
 });
 
 test("caseRows: прогресс не выходит за порог и мусор не ломает список", () => {
