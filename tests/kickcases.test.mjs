@@ -110,6 +110,10 @@ test("caseRows: строки из живого ответа, минуты под
   assert.equal(rows[1].status, "claimed");
   assert.equal(rows[1].rarity, "rare");
   assert.match(rows[1].image, /widepeepoSmile_Rare_card/);
+  // Пока награды нет, картинку взять неоткуда — берём анимацию кейса из того же ответа Kick.
+  assert.equal(rows[0].image, "");
+  assert.equal(rows[0].animation, "https://static.kick.com/rewards/gta-vi-2611/idle.webm");
+  assert.equal(rows[1].animation, "https://static.kick.com/rewards/daily-rewards/idle.webm");
   // Ключ попытки — id и конец окна: завтра у того же кейса новый ключ.
   assert.equal(rows[0].key, "01a1c81b-e588-721b-9f82-95f7b5ce426b|" + Date.parse("2026-11-20T00:00:00Z"));
 });

@@ -155,6 +155,11 @@ function hideBrokenImages(root) {
   for (const image of root.querySelectorAll("img")) {
     image.addEventListener("error", () => image.remove(), { once: true });
   }
+  // Кейс без награды показывается анимацией Kick (webm); если файл не загрузился,
+  // остаётся буква-заглушка под ним.
+  for (const video of root.querySelectorAll("video")) {
+    video.addEventListener("error", () => video.remove(), { once: true });
+  }
 }
 
 function streamerChip(channel) {
@@ -580,6 +585,8 @@ function render(state) {
   renderSettings();
   // Kick перерисовывается вместе с Twitch, иначе после смены языка его подписи остаются старыми.
   if (kickState) renderKick(kickState);
+  // Кейсы живут в том же окне настроек: без этого их заголовок и строки оставались на прежнем языке.
+  if (casesState) renderCases(casesState);
   renderExtras();
 }
 
@@ -1728,9 +1735,14 @@ function paintCases() {
 function caseRow(row, account) {
   const ratio = row.threshold ? Math.min(100, Math.round((row.progress / row.threshold) * 100)) : 0;
   const ready = row.status === "claimable" || (row.threshold > 0 && row.progress >= row.threshold && row.status !== "claimed");
-  const art = row.image && safeUrl(row.image)
-    ? `<img class="case-art" src="${escapeHtml(row.image)}" alt="">`
-    : `<span class="case-badge">${escapeHtml((row.name || "?").slice(0, 1).toUpperCase())}</span>`;
+  const letter = escapeHtml((row.name || "?").slice(0, 1).toUpperCase());
+  const image = row.image && safeUrl(row.image);
+  // У открытого кейса есть картинка награды, у остальных — только анимация кейса из ответа Kick.
+  const art = image
+    ? `<img class="case-art" src="${escapeHtml(image)}" alt="">`
+    : row.animation && safeUrl(row.animation)
+      ? `<span class="case-art case-video"><span class="case-letter">${letter}</span><video src="${escapeHtml(row.animation)}" autoplay loop muted playsinline preload="metadata" aria-hidden="true"></video></span>`
+      : `<span class="case-badge">${letter}</span>`;
   const bits = [];
   if (row.status === "claimed") bits.push(L("casesClaimed"));
   else if (row.threshold) bits.push(L("casesProgress", { current: row.progress, required: row.threshold }));

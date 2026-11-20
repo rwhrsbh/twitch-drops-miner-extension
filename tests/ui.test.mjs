@@ -98,6 +98,29 @@ test("у «одной игры» есть картинка, как во вкла
   assert.ok(popup.slice(popup.indexOf("function soloOptions("), start).includes("image: game?.image"), "Kick отдаёт картинку кампании");
 });
 
+test("картинки кейсов берутся из ответа Kick, а не из заглушек", () => {
+  // Запрос пользователя: у кейсов не было картинок. У открытого кейса есть награда,
+  // у остальных — только анимация кейса, которую отдаёт тот же ответ gamification/challenges.
+  const cases = read("lib/kickcases.js");
+  assert.ok(cases.includes("animations?.idle_url"), "Kick отдаёт ссылку на анимацию кейса");
+  assert.ok(cases.includes("animation: caseAnimation(item)"), "строка кейса получает анимацию");
+  assert.ok(popup.includes("row.animation"), "попап рисует анимацию из строки");
+  assert.ok(popup.includes("case-video"), "у анимации своя обёртка");
+  assert.ok(popup.includes("<video"), "это видео, а не выдуманная картинка");
+});
+
+test("смена языка сразу перерисовывает кейсы", () => {
+  // Жалоба пользователя: описание кейсов оставалось на старом языке до перезапуска попапа.
+  const start = popup.indexOf("function render(state)");
+  const end = popup.indexOf("// Эксклюзивный дроп без канала", start);
+  assert.ok(start > 0 && end > start, "render найдена");
+  assert.ok(popup.slice(start, end).includes("if (casesState) renderCases(casesState)"),
+    "язык меняется — кейсы перерисовываются вместе с остальным окном");
+  assert.ok(!i18n.includes("Открывать кейс самому"), "старая формулировка убрана");
+  assert.match(i18n, /casesToggle: "Открывать кейсы автоматически"/);
+  assert.match(i18n, /casesHint: "Награды Kick за просмотр/);
+});
+
 test("мёртвых строк не прибавилось", () => {
   // Пять ключей висят с прежних версий: они были не нужны и в main, поэтому это не регрессия ветки.
   const known = new Set(["noLogin", "kickTitle", "kickLeft", "kickChannels", "viewOnly"]);
