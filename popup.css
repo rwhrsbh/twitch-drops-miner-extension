@@ -251,6 +251,9 @@ h2 {
   border-radius: 18px;
   background: var(--card);
   box-shadow: inset 0 0 0 0.5px var(--line);
+  /* Строка текущего дропа закрашена зелёным до краёв: без обрезки её углы
+     вылезают за скругление карточки и выглядят квадратной зелёной рамкой. */
+  overflow: hidden;
 }
 
 .bucket.exclusive .bucket-card { max-height: 248px; overflow: auto; }

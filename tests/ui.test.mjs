@@ -121,6 +121,29 @@ test("смена языка сразу перерисовывает кейсы",
   assert.match(i18n, /casesHint: "Награды Kick за просмотр/);
 });
 
+test("старые строки кейсов сами перечитываются после обновления", () => {
+  // У Sunset Reward Case вместо анимации оставалась буква «S»: сохранённые строки пришли
+  // из версии без animation, а фон обновлял их только раз в 90 секунд.
+  const cases = read("lib/kickcases.js");
+  assert.ok(cases.includes("artVersion: 2"), "новые строки помечены как строки с анимацией");
+  assert.ok(popup.includes("function needsCaseArt("), "попап умеет узнать старые строки");
+  assert.ok(popup.includes('send({ type: "kickCasesTick" })'), "попап просит фон перечитать кейсы");
+  const start = popup.indexOf('$("now").addEventListener');
+  const end = popup.indexOf('$("inventory-2")', start);
+  assert.ok(start > 0 && end > start, "кнопка Refresh найдена");
+  assert.ok(popup.slice(start, end).includes("kickCasesTick"), "Refresh обновляет и кейсы");
+});
+
+test("карточка очереди обрезает зелёную строку по скруглению", () => {
+  // Жалоба пользователя: у текущего дропа зелёная подсветка вылезала за скруглённые
+  // углы карточки и выглядела квадратной обводкой.
+  const css = read("popup.css");
+  const start = css.indexOf(".bucket-card, .log-sheet");
+  const end = css.indexOf(".bucket.exclusive .bucket-card", start);
+  assert.ok(start > 0 && end > start, "правило карточки найдено");
+  assert.ok(css.slice(start, end).includes("overflow: hidden"), "фон строки обрезается по скруглению");
+});
+
 test("мёртвых строк не прибавилось", () => {
   // Пять ключей висят с прежних версий: они были не нужны и в main, поэтому это не регрессия ветки.
   const known = new Set(["noLogin", "kickTitle", "kickLeft", "kickChannels", "viewOnly"]);

@@ -61,3 +61,24 @@ test("badge drop: the miner marks it itself, nothing is claimed over the network
   assert.equal(again.drops[0].claimed, true);
   assert.equal(calls, 0);
 });
+
+test("normal tick: badge at 100% is claimed through claimQueueExtras", async () => {
+  // Обычный проход раньше пропускал значки в claimQueue и не звал claimReady, поэтому
+  // выфармленный значок висел в очереди со ста процентами до перезапуска расширения.
+  const row = {
+    id: "d2", name: "Haunter", game: "Pokemon Evolutions", gameId: "g2",
+    required: 15, current: 15, claimed: false, badge: true, campaignId: "c2", image: "",
+  };
+  const out = await miner.claimQueueExtras(auth, [row], "en");
+  assert.deepEqual(out, { claimed: ["Haunter (Pokemon Evolutions)"], failed: [], changed: true });
+  assert.equal(row.claimed, true);
+  assert.equal(calls, 0);
+
+  // Повторно тот же значок уже не клеймится: отметка майнера живёт в badgeDrops.
+  // changed остаётся true, чтобы проход сохранил обновлённую строку очереди.
+  const again = { ...row, claimed: false };
+  const second = await miner.claimQueueExtras(auth, [again], "en");
+  assert.deepEqual(second, { claimed: [], failed: [], changed: true });
+  assert.equal(again.claimed, true);
+  assert.equal(calls, 0);
+});

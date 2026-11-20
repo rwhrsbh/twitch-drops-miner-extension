@@ -696,9 +696,15 @@ $("twitch-toggle").addEventListener("click", async () => {
 $("now").addEventListener("click", async () => {
   $("now").disabled = true;
   try {
-    const [twitch, kick] = await Promise.all([send({ type: "tick" }), send({ type: "kickTick" })]);
+    const [twitch, kick, cases] = await Promise.all([
+      send({ type: "tick" }),
+      send({ type: "kickTick" }),
+      // Обновление должно обновлять и кейсы: их картинки приходят только из свежего ответа Kick.
+      send({ type: "kickCasesTick" }).catch(() => null),
+    ]);
     render(twitch);
     renderKick(kick);
+    if (cases) renderCases(cases);
   } finally {
     $("now").disabled = false;
   }
@@ -1849,5 +1855,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.state?.newValue || changes.kick?.newValue) paintSolo();
 });
 
-send({ type: "getKickCases" }).then(renderCases);
+// Старые сохранённые строки кейсов пришли без анимации. После обновления расширения попап
+// один раз просит фон перечитать кейсы, иначе буква-заглушка висела бы до 90-секундного прохода.
+function needsCaseArt(state) {
+  if (Number(state?.artVersion || 0) >= 2) return false;
+  return Object.values(state?.accounts || {}).some((entry) => entry?.served !== false && (entry.items || []).length);
+}
+
+send({ type: "getKickCases" }).then((state) => {
+  renderCases(state);
+  if (!needsCaseArt(state)) return;
+  send({ type: "kickCasesTick" }).then((next) => {
+    if (next) renderCases(next);
+  }).catch(() => {});
+});
 
