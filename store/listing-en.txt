@@ -1,4 +1,4 @@
-Drops farms Twitch and Kick drops at the same time. It does not play the stream. On Twitch it requests the stream playlist without downloading or playing video; on Kick it keeps the same viewer connection the Kick site uses. Progress is read from each platform, and finished drops are claimed automatically.
+Drops farms Twitch and Kick drops at the same time. It does not play the stream. On Twitch it requests the stream playlist without downloading or playing video; on Kick it keeps the same viewer connection the Kick site uses. Progress is read from each platform, and the extension claims what is ready.
 
 - Sign-in uses the Twitch and Kick sessions already open in this browser. The cookies are read locally. Your password is never stored.
 - Pick the games you want, or turn on "Mine all available campaigns". In that mode your games go first, then every other linked campaign. A blacklist keeps games you never want farmed.
@@ -6,10 +6,12 @@ Drops farms Twitch and Kick drops at the same time. It does not play the stream.
 - If a streamer goes offline or switches to another game, the miner moves to someone who is live in that game.
 - If progress stops without an error, the miner changes channel, and if that does not help, it opens a pinned muted tab with the real player until minutes count again.
 - Click any drop in the popup to farm it next.
-- Several accounts: add more Twitch or Kick accounts and they farm in parallel, each with its own games; taking turns is available too. To claim drops or take turns the extension swaps site cookies, so the browser may be signed in as another saved account.
-- Kick cases (the Daily Reward and promos like the Sunset Reward Case) open by themselves once Kick has counted the minutes: progress and the result are shown in the popup. With nothing left to farm and minutes still needed, the miner watches any stream — for every saved account too.
+- Twitch reward campaigns and badges: daily chests such as GTAVI Launch Celebration and badge campaigns such as Jordan x Space Jam or Payday 3 use the same watch time as drops. Twitch redeems badges itself, so the extension records them as received and does not farm the same badge again. A chest opens when Twitch offers its reward; if several options are available, the choice stays yours unless "Auto-pick the chest reward" is on, while a chest with a single option always opens.
+- Several accounts: add more Twitch or Kick accounts and they farm in parallel, each with its own games. Each account also reads its own chest and badge progress; if Twitch does not expose that progress for a saved account, the extension leaves the chest alone instead of claiming blindly. Taking turns is available too. To claim drops or take turns the extension swaps site cookies, so the browser may be signed in as another saved account.
+- Kick cases (the Daily Reward and promos like the Sunset Reward Case) open by themselves once Kick has counted the minutes: progress, the case art and the result are shown in the popup. The case list follows the selected Kick account. With nothing left to farm and minutes still needed, the miner watches any stream — for every saved account too. Automatic opening can be turned off in the settings; then the miner does not watch just to fill cases.
 - A "one game non-stop" mode for Twitch and Kick: that game's drops first, then any of its channels with drops enabled, then any of its streams. Everything else is ignored, including for accounts farming in parallel.
-- Claim history shows what was claimed and on which account, case rewards included.
-- The popup shows both miners side by side and is available in English and Russian.
+- Claim history shows what was claimed and on which account, including chests, badges and case rewards.
+- The popup shows both miners side by side: the game and minutes stay on separate lines, and the reward art sits inside the progress ring. Available in English and Russian.
+- Self-repair: Twitch query hashes are checked and refreshed automatically from this repository, so a Twitch-side change does not always need a new release.
 
-The Twitch farming approach follows TwitchDropsMiner by DevilXD. The Kick protocol follows kickautodrops. Support for this extension is not guaranteed.
+The Twitch farming approach follows TwitchDropsMiner by DevilXD. The Kick protocol follows kickautodrops and LurkLoot. Support for this extension is not guaranteed.

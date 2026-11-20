@@ -611,3 +611,122 @@ test("название, ставшее выбранной игрой, уходи
   assert.deepEqual(miner.unmetWishes(["alpha", "Beta", "Gamma"], games, ["7"]), ["Beta", "Gamma"]);
   assert.deepEqual(miner.unmetWishes(["Alpha"], [{ game: { id: "7", name: "Alpha" } }], ["7"]), []);
 });
+
+// ---- Сундуки и значки reward-кампаний у параллельного аккаунта ----
+
+function rewardCatalog() {
+  const row = (id, extra = {}) => ({
+    id, kind: "reward", name: id, required: 60, current: 60, claimed: true, claimId: "", badge: true, status: "CLAIMABLE",
+    grantCount: 3, startsAt: Date.now() + 3600e3, windowEndsAt: Date.now() + 3600e3, unknown: true, benefits: [id], benefitIds: [], preconditionIds: [],
+    campaignId: "rc1", campaignName: "GTA", game: { id: "g1", name: "Rust" }, games: [{ id: "g1", name: "Rust" }], channels: [], linked: true, ...extra,
+  });
+  return [
+    {
+      id: "rc1", kind: "reward", name: "GTA", linked: true, status: "ACTIVE", startsAt: 0, endsAt: Date.now() + 86400e3,
+      game: { id: "g1", name: "Rust", slug: "rust", image: "" }, games: [{ id: "g1", name: "Rust" }], channels: [], drops: [row("chest")],
+    },
+    {
+      id: "c1", name: "Rust drops", linked: true, game: { id: "g1", name: "Rust", slug: "rust", image: "" }, channels: [],
+      drops: [{
+        id: "d1", name: "Skin", benefits: ["Skin"], benefitIds: [], required: 60, current: 60, claimed: true, channels: [],
+        preconditionIds: [], campaignId: "c1", campaignName: "Rust drops", game: { id: "g1", name: "Rust" },
+      }],
+    },
+  ];
+}
+
+// own: ответ на запрос прогресса сундука (null — Twitch отказал без integrity-токена).
+function rewardGql(own, seen) {
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    if (!target.includes("gql.twitch.tv")) return inner(url, init);
+    const payload = JSON.parse(init.body || "{}");
+    const body = Array.isArray(payload) ? payload[0] : payload;
+    const text = String(body?.query || "");
+    const operation = body?.operationName || (/RewardCampaignProgress/.test(text) ? "RewardCampaignProgress" : /selectDropsRewardOption/.test(text) ? "SelectDropsRewardOption" : /dropsRewardOptions/.test(text) ? "dropsRewardOptions" : "");
+    const json = (data, status = 200) => new Response(JSON.stringify(data), { status });
+    seen.push(operation || text.slice(0, 40));
+    if (operation === "Inventory") {
+      return json({ data: { currentUser: { inventory: { dropCampaignsInProgress: [{
+        id: "c1", timeBasedDrops: [{ id: "d1", self: { currentMinutesWatched: 30, isClaimed: false, dropInstanceID: "" } }],
+      }] } } } });
+    }
+    if (operation === "RewardCampaignProgress") {
+      return own ? json({ data: { dropsCampaign: own } }) : json({ errors: [{ message: "failed integrity check" }] });
+    }
+    return json({ data: {} });
+  };
+  return () => { globalThis.fetch = inner; };
+}
+
+const chestGroup = (self) => ({
+  id: "chest",
+  rewards: [{ id: "r1", name: "GTA DVD Chest", thumbnailURL: "", distributionType: "POOL" }],
+  progressCriteria: {
+    requirementType: "WATCH", requirements: { minutesWatched: 60 }, isRepeatable: true,
+    repeatableConfig: { repeatableTimes: 6, resetIntervalSeconds: 86400 }, categories: [{ id: "g1", displayName: "Rust" }],
+  },
+  self,
+});
+const chestCampaign = (self) => ({
+  id: "rc1", name: "GTA", status: "ACTIVE", startAt: "2026-11-18T11:00:00Z", endAt: "2099-12-01T07:59:59.999Z", game: null, rewardGroups: [chestGroup(self)],
+});
+
+test("twitch reward: второй аккаунт видит свой прогресс сундука, а не чужой статус основного", async () => {
+  await twitchReset();
+  miner.seedCatalog(rewardCatalog());
+  const seen = [];
+  const restore = rewardGql(chestCampaign({ status: "IN_PROGRESS", currentMinutesWatched: 25, grantCount: 0, nextEligibleAt: null, currentWindow: null }), seen);
+  try {
+    const result = await side.sideTick();
+    assert.deepEqual(result, {}, "аккаунт менять не просит");
+    assert.ok(seen.includes("RewardCampaignProgress"), "прогресс сундука запрошен токеном этого аккаунта");
+    assert.ok(!seen.some((name) => /ClaimDrop|SelectDropsReward|dropsRewardOptions/i.test(name)), "чужой CLAIMABLE не клеймится");
+    const queue = store.local.side["2"].queue;
+    const chest = queue.find((row) => row.id === "chest");
+    assert.ok(chest, "сундук в очереди");
+    assert.equal(chest.current, 25);
+    assert.equal(chest.claimed, false);
+    const regular = queue.find((row) => row.id === "d1");
+    assert.equal(regular.current, 30, "обычный дроп читается из инвентаря как раньше");
+  } finally {
+    restore();
+  }
+});
+
+test("twitch reward: Twitch не отдал прогресс — сундука нет, чужие данные не подставляются, обычные дропы идут", async () => {
+  await twitchReset();
+  miner.seedCatalog(rewardCatalog());
+  const seen = [];
+  const restore = rewardGql(null, seen);
+  try {
+    const result = await side.sideTick();
+    assert.deepEqual(result, {}, "отказ по сундуку не заставляет менять аккаунт");
+    assert.ok(!seen.some((name) => /ClaimDrop|SelectDropsReward|dropsRewardOptions/i.test(name)), "ничего не клеймится вслепую");
+    const slot = store.local.side["2"];
+    assert.notEqual(slot.phase, "error");
+    assert.notEqual(slot.phase, "needs-main");
+    assert.ok(!slot.queue.some((row) => row.id === "chest"), "сундук остаётся только у активного аккаунта");
+    assert.equal(slot.queue.find((row) => row.id === "d1").current, 30);
+  } finally {
+    restore();
+  }
+});
+
+test("twitch reward: значок основного не засчитывается второму аккаунту", async () => {
+  await twitchReset();
+  const campaigns = rewardCatalog();
+  campaigns[0].drops[0].badge = true;
+  miner.seedCatalog(campaigns);
+  const seen = [];
+  const restore = rewardGql(chestCampaign({ status: "IN_PROGRESS", currentMinutesWatched: 5, grantCount: 0, nextEligibleAt: null, currentWindow: null }), seen);
+  try {
+    await side.sideTick();
+    const chest = store.local.side["2"].queue.find((row) => row.id === "chest");
+    assert.equal(chest.claimed, false, "5 минут из 60 у этого аккаунта: значок не выдан");
+    assert.equal(chest.current, 5);
+  } finally {
+    restore();
+  }
+});

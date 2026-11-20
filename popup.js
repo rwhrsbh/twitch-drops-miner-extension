@@ -200,6 +200,16 @@ function side(platform) {
   return accounts?.[platform] || { active: "", list: [] };
 }
 
+// Ник аккаунта для карточки и чипов: логин, а если его нет, то id (те же цифры, что видны в чипах).
+function accountName(account) {
+  return account?.login || account?.id || "";
+}
+
+function activeLogin(platform) {
+  const mine = side(platform);
+  return accountName(mine.list.find((item) => item.id === mine.active));
+}
+
 function targetId(platform) {
   const mine = side(platform);
   return mine.list.some((item) => item.id === editing[platform]) ? editing[platform] : mine.active;
@@ -284,13 +294,13 @@ function restoreScroll(spot) {
 }
 
 // Главный тумблер включает и выключает оба майнера; по отдельности их можно выключить в настройках.
-function ringHtml(ratio, idle) {
+function ringHtml(ratio, idle, art = "") {
   return `<div class="ring" style="--p:${ratio}">
     <svg viewBox="0 0 36 36" aria-hidden="true">
       <circle class="track" cx="18" cy="18" r="16"></circle>
       <circle class="value" cx="18" cy="18" r="16"></circle>
     </svg>
-    <b>${idle ? "—" : `${ratio}%`}</b>
+    <b><span class="ring-slot">${art ? `<img class="ring-art" src="${escapeHtml(art)}" alt="">` : ""}</span><span class="pct-num">${idle ? "—" : `${ratio}%`}</span></b>
   </div>`;
 }
 
@@ -304,16 +314,32 @@ function paintHero(box, card) {
   box.className = `hero${item ? "" : " idle"}`;
   setHtml(box, `
     ${backdrop ? `<img class="hero-bg" src="${escapeHtml(backdrop)}" alt="">` : ""}
-    <div><p class="eyebrow">${escapeHtml(label)}</p>${card.user ? `<span class="who">${escapeHtml(card.user)}</span>` : ""}</div>
-    ${ringHtml(ratio, !item || item.solo)}
+    <div><p class="eyebrow">${escapeHtml(label)}</p>${card.user ? `<span class="who">${escapeHtml(card.user)}</span>` : `<span class="who"></span>`}</div>
+    ${ringHtml(ratio, !item || item.solo, reward && reward !== backdrop ? reward : "")}
     ${item ? `<div>
       <h2>${escapeHtml(item.name)}</h2>
-      <p class="fine">${escapeHtml(item.game)} · ${item.solo ? escapeHtml(L("soloFine")) : L("minutesShort", { current: item.current || 0, required: item.required })}${card.ping ? ` · ${escapeHtml(card.ping)}` : ""}</p>
+      <p class="fine"><span class="fit">${escapeHtml(item.game)}</span><span class="fit">${item.solo ? escapeHtml(L("soloFine")) : L("minutesShort", { current: item.current || 0, required: item.required })}${card.ping ? ` · ${escapeHtml(card.ping)}` : ""}</span></p>
       <button class="channel" type="button" ${card.openAttr}="${escapeHtml(item.login)}"><i></i><span>${escapeHtml(item.login)}</span></button>
     </div>` : `<div><p class="hero-msg${card.bad ? " bad" : ""}">${escapeHtml(card.message || "")}</p></div>`}
-    ${reward && reward !== backdrop ? `<img class="hero-art" src="${escapeHtml(reward)}" alt="">` : ""}
   `);
   hideBrokenImages(box);
+  fitRows(box);
+  // Карточка могла отрисоваться в скрытой вкладке или до раскладки: после неё меряем ещё раз.
+  requestAnimationFrame(() => fitRows(box));
+}
+
+// Строки «игра» и «минуты · пинг» всегда по одной на ряд: не влезло — шрифт меньше, но не перенос,
+// чтобы канал и значки под ними не ездили от карточки к карточке.
+function fitRows(box) {
+  for (const row of box.querySelectorAll(".fine .fit")) {
+    row.style.fontSize = "";
+    if (!row.clientWidth) continue;
+    let size = parseFloat(getComputedStyle(row).fontSize) || 12;
+    while (row.scrollWidth > row.clientWidth && size > 7) {
+      size -= 0.5;
+      row.style.fontSize = `${size}px`;
+    }
+  }
 }
 
 // Остальные аккаунты Twitch, которые фармят одновременно с активным: по карточке на каждый.
@@ -361,7 +387,7 @@ function renderSideCards() {
     const kick = platform === "kick";
     paintHero(node, {
       platform: kick ? "Kick" : "Twitch",
-      user: account.login || info.login || "",
+      user: account.login || info.login || accountName(account),
       item,
       on: true,
       ping: item ? ago(kick ? info.lastPing : info.lastPing?.at).text : "",
@@ -407,6 +433,7 @@ document.addEventListener("click", (event) => {
   if (!chip) return;
   viewAcc[chip.dataset.view] = chip.dataset.id;
   if (latest) render(latest);
+  if (chip.dataset.view === "kick" && casesState) renderCases(casesState);
 });
 
 function paintSwitches(twitch, kick) {
@@ -485,7 +512,7 @@ function render(state) {
     : state.phase === "need-login" ? L("noLoginShort") : status.textContent;
   paintHero($("watch"), {
     platform: "Twitch",
-    user: state.user?.login || "",
+    user: state.user?.login || activeLogin("twitch"),
     item: on ? state.watching : null,
     on,
     ping: ping.text,
@@ -938,7 +965,7 @@ function renderKickHero(state) {
     : state.phase === "need-login" ? L("noLoginShort") : show(latest?.lang, state.message) || L("waitFirst");
   paintHero($("kick-watch"), {
     platform: "Kick",
-    user: state.user || "",
+    user: state.user || activeLogin("kick"),
     item,
     on: state.enabled,
     ping: item && kickPing?.login === item.login ? ago(kickPing.at).text : "",
@@ -1146,8 +1173,22 @@ setInterval(() => {
   if (latest) render(latest);
 }, 15000);
 
-send({ type: "getState" }).then(render);
-send({ type: "getKick" }).then(renderKick);
+// Карточки остальных аккаунтов и список аккаунтов лежат в хранилище: читаем их напрямую и рисуем
+// вместе с двумя основными, а не после очереди ответов фонового скрипта.
+const preload = chrome.storage.local.get(["side", "kickSide", "accounts"]).then((items) => {
+  sideFarm = items.side || {};
+  kickSideFarm = items.kickSide || {};
+  const raw = items.accounts;
+  if (raw) accounts = { twitch: publicSide(raw.twitch), kick: publicSide(raw.kick), rotate: raw.rotate || accounts?.rotate, warned: Boolean(raw.warned) };
+}).catch(() => {});
+Promise.all([send({ type: "getState" }), preload]).then(([value]) => {
+  render(value);
+  renderSideCards();
+});
+Promise.all([send({ type: "getKick" }), preload]).then(([value]) => {
+  renderKick(value);
+  renderSideCards();
+});
 send({ type: "getSettings" }).then((value) => {
   if (value) settings = value;
   if (latest) render(latest);
@@ -1768,13 +1809,28 @@ function accountLabel(id, entry) {
   return id === "current" ? L("browserAs") : id;
 }
 
+// Какие записи кейсов принадлежат аккаунту, выбранному чипом. Запись ищется по id, затем по логину;
+// у вошедшего в браузере без сохранённого входа ключ «current» или «live:логин».
+function casesOf(accounts) {
+  const mine = side("kick");
+  const viewed = viewedId("kick");
+  const entry = mine.list.find((item) => item.id === viewed);
+  if (!entry) return Object.keys(accounts);
+  const login = String(entry.login || "").toLowerCase();
+  const own = Object.keys(accounts).filter((id) => id === viewed
+    || (login && String(accounts[id].login || "").toLowerCase() === login));
+  if (own.length || viewed !== mine.active) return own;
+  return Object.keys(accounts).filter((id) => id === "current" || id.startsWith("live:"));
+}
+
 function renderCases(state) {
   if (state) casesState = state;
   const all = casesState?.accounts || {};
   // Необслуживаемые аккаунты (например, сохранённые при режиме «только вручную») не предлагаем.
   const accounts = Object.fromEntries(Object.entries(all).filter(([, entry]) => entry.served !== false));
-  const ids = Object.keys(accounts);
-  const hidden = Object.keys(all).length - ids.length;
+  const hidden = Object.keys(all).length - Object.keys(accounts).length;
+  // Кейсы показываем того аккаунта, чья вкладка выбрана сверху: у каждого они свои.
+  const ids = casesOf(accounts);
   const open = ids.reduce((sum, id) => sum + (accounts[id].items || []).filter((row) => row.status !== "claimed").length, 0);
   const error = ids.map((id) => accounts[id].error || accounts[id].claimError).find(Boolean) || "";
   $("cases-title").textContent = L("casesTitle");

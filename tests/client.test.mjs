@@ -263,3 +263,88 @@ test("reward chests: a single chest is done when Twitch says claimed, a repeatab
     globalThis.fetch = saved;
   }
 });
+
+test("repeatable chest finished for today's window (60/60, grantCount 1, IN_PROGRESS) is closed until the window ends", async () => {
+  const saved = globalThis.fetch;
+  const group = (id, windowEnd, minutes, grants) => ({
+    id,
+    rewards: [{ id: "r" + id, name: id, thumbnailURL: "", distributionType: "POOL" }],
+    progressCriteria: {
+      requirementType: "WATCH",
+      requirements: { minutesWatched: 60 },
+      isRepeatable: true,
+      repeatableConfig: { repeatableTimes: 6, resetIntervalSeconds: 86400 },
+      categories: [{ id: "1", displayName: "Game" }],
+    },
+    self: {
+      status: "IN_PROGRESS", currentMinutesWatched: minutes, grantCount: grants, nextEligibleAt: null,
+      currentWindow: windowEnd ? { startedAt: "2026-11-19T17:13:01Z", expiresAt: windowEnd } : null,
+    },
+  });
+  const future = new Date(Date.now() + 3600e3).toISOString();
+  const past = new Date(Date.now() - 3600e3).toISOString();
+  const details = {
+    id: "rc3", name: "GTA", status: "ACTIVE", startAt: "2026-11-18T11:00:00Z", endAt: "2099-12-01T07:59:59.999Z",
+    rewardGroups: [
+      group("doneToday", future, 60, 1),
+      group("windowOver", past, 60, 1),
+      group("notGrantedYet", future, 60, 0),
+      group("halfway", future, 30, 1),
+    ],
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    const body = JSON.parse(init.body);
+    if (body.query?.includes("rewardCampaignsAvailableToUser")) {
+      return new Response(JSON.stringify({ data: { rewardCampaignsAvailableToUser: [rewardSummary] } }));
+    }
+    return new Response(JSON.stringify({ data: { dropsCampaign: details } }));
+  };
+  try {
+    const campaigns = await client.listCampaigns(auth);
+    const byId = new Map(campaigns[0].drops.map((drop) => [drop.id, drop]));
+    assert.equal(byId.get("doneToday").claimed, true);
+    assert.equal(byId.get("windowOver").claimed, false);
+    assert.equal(byId.get("notGrantedYet").claimed, false);
+    assert.equal(byId.get("halfway").claimed, false);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("side account: chest progress comes from its own request, and stays unknown when Twitch refuses it", async () => {
+  const saved = globalThis.fetch;
+  const row = () => ({
+    id: "c1", kind: "reward", name: "GTA", game: { id: "1867279146", name: "Grand Theft Auto VI" },
+    drops: [{ id: "g1", kind: "reward", required: 60, current: 0, claimed: false, badge: false, status: "", grantCount: 0, startsAt: 0, windowEndsAt: 0, unknown: true }],
+  });
+  const details = {
+    id: "c1", name: "GTA", status: "ACTIVE", startAt: "2026-11-18T11:00:00Z", endAt: "2099-12-01T07:59:59.999Z",
+    game: null,
+    rewardGroups: [{
+      id: "g1",
+      rewards: [{ id: "r1", name: "GTA DVD Chest", thumbnailURL: "", distributionType: "POOL" }],
+      progressCriteria: {
+        requirementType: "WATCH", requirements: { minutesWatched: 60 }, isRepeatable: true,
+        repeatableConfig: { repeatableTimes: 6, resetIntervalSeconds: 86400 }, categories: [{ id: "1867279146", displayName: "Grand Theft Auto VI" }],
+      },
+      self: { status: "IN_PROGRESS", currentMinutesWatched: 25, grantCount: 0, nextEligibleAt: null, currentWindow: null },
+    }],
+  };
+  const side = { ...auth, plain: true };
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ data: { dropsCampaign: details } }));
+    const own = [row()];
+    await client.applyRewardProgress(side, own);
+    assert.equal(own[0].drops[0].current, 25);
+    assert.equal(own[0].drops[0].unknown, false);
+    assert.equal(own[0].drops[0].claimed, false);
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ errors: [{ message: "failed integrity check" }] }));
+    const refused = [row()];
+    await client.applyRewardProgress(side, refused);
+    assert.equal(refused[0].drops[0].unknown, true);
+    assert.equal(refused[0].drops[0].current, 0);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});

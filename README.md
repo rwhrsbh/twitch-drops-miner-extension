@@ -34,6 +34,8 @@ Twitch also runs campaigns that do not look like drops in the app: **reward camp
 - Badge campaigns arrive with `isAccountConnected: false` and `accountLinkURL = https://www.twitch.tv/` because there is no external account to link. A campaign counts as linked when every reward is a `BADGE` and the link points at Twitch itself; a `DIRECT_ENTITLEMENT` campaign with the same link stays unlinked (Payday 3 and OSRS are badges, World of Warships is not).
 - Twitch redeems badges by itself: they have no `dropInstanceID` and no "Claim" button, and the campaign details keep saying `isClaimed: false` forever. The miner therefore marks a finished badge as received itself, writes it to the history and remembers it for 60 days under `badgeDrops`, so an already earned badge is not farmed again. The regular minute pass now does this too, so a finished badge leaves the queue instead of staying at 100% until the extension restarts. This follows TwitchDropsMiner issues [#817](https://github.com/DevilXD/TwitchDropsMiner/issues/817) and [#916](https://github.com/DevilXD/TwitchDropsMiner/issues/916).
 
+Chest and badge progress is read for every account separately. If Twitch withholds it for a saved account, that account does not farm the chest blindly.
+
 Checked live on 19–20 November 2026: a badge drop collects minutes (Payday 3 "Clover", 5 of 30 after playlist pings and a short real player session) while its campaign details still report 0; the current progress only comes from `DropCurrentSession`. "Jordan x Space Jam" did not collect a single minute on its listed channel `samham` for 18 minutes, so a Twitch self-link alone does not guarantee the campaign is available in the region.
 
 ## Self-repair
@@ -79,7 +81,7 @@ Removing the account the browser is signed in to also signs the site out (otherw
 
 ## Claim history
 
-The History tab lists claimed drops with the account they went to.
+The History tab lists claimed drops, chest rewards, badges and Kick case rewards with the account they went to.
 
 ## Farming
 

@@ -152,3 +152,49 @@ test("мёртвых строк не прибавилось", () => {
   const unused = ru.filter((key) => !code.includes(`"${key}"`) && !known.has(key));
   assert.deepEqual(unused, []);
 });
+
+test("кейсы показываются только у аккаунта, выбранного чипом", () => {
+  const start = popup.indexOf("function casesOf(accounts)");
+  const end = popup.indexOf("function renderCases(state)", start);
+  assert.ok(start > 0 && end > start, "casesOf найдена");
+  const build = (mine, viewed) => new Function("side", "viewedId", `${popup.slice(start, end)}; return casesOf;`)(() => mine, () => viewed);
+  const mine = { active: "1", list: [{ id: "1", login: "Main" }, { id: "2", login: "second" }, { id: "3", login: "third" }] };
+  const accounts = { 1: { login: "main" }, 2: { login: "second" }, "live:other": { login: "other" } };
+  assert.deepEqual(build(mine, "2")(accounts), ["2"], "второй аккаунт видит только свои кейсы");
+  assert.deepEqual(build(mine, "1")(accounts), ["1"], "активный — свои, по id");
+  assert.deepEqual(build(mine, "3")(accounts), [], "у третьего записи нет: пусто, а не чужие");
+  const live = { 1: { login: "" }, current: { login: "" } };
+  assert.deepEqual(build(mine, "1")({ current: { login: "" } }), ["current"], "активный без сохранённой записи берёт «current»");
+  assert.deepEqual(build(mine, "2")(live), [], "неактивному «current» не отдаётся");
+  assert.ok(popup.includes('chip.dataset.view === "kick" && casesState'), "клик по чипу перерисовывает кейсы");
+});
+
+test("карточка фарма: две фиксированные строки со сжатием шрифта, карточки аккаунтов грузятся сразу", () => {
+  const css = read("popup.css");
+  assert.ok(popup.includes('<span class="fit">'), "игра и минуты лежат в отдельных строках");
+  const fit = css.slice(css.indexOf(".fine .fit {"), css.indexOf("}", css.indexOf(".fine .fit {")));
+  assert.ok(fit.includes("white-space: nowrap") && fit.includes("overflow: hidden"), "строка не переносится");
+  assert.match(css, /\.duo \.hero h2 \{ min-height: 2\.4em; \}/, "заголовок занимает два ряда всегда: канал не едет");
+  assert.ok(popup.includes("function fitRows(box)") && popup.includes("fitRows(box);"), "шрифт подгоняется после отрисовки");
+  const start = popup.indexOf("const preload = chrome.storage.local.get");
+  assert.ok(start > 0, "аккаунты и карточки читаются из хранилища напрямую");
+  const boot = popup.slice(start, popup.indexOf("// ---------- Баллы, история, аккаунты", start));
+  assert.ok(boot.includes('"side", "kickSide", "accounts"'));
+  assert.ok(/Promise\.all\(\[send\(\{ type: "getState" \}\), preload\]\)/.test(boot), "основная карточка ждёт те же данные");
+  assert.ok(/Promise\.all\(\[send\(\{ type: "getKick" \}\), preload\]\)/.test(boot));
+});
+
+test("значок награды внутри кольца под процентами, слот и строка аккаунта занимают место всегда", () => {
+  const css = read("popup.css");
+  assert.ok(popup.includes('class="ring-slot"') && popup.includes('class="ring-art"'), "значок в кольце");
+  assert.ok(!popup.includes('class="hero-art"'), "углового значка больше нет");
+  assert.ok(/\.duo \.ring-slot \{[^}]*position: absolute/.test(css), "слой не двигает проценты");
+  assert.ok(/\.duo \.who \{[^}]*min-height: 14px/.test(css), "пустая строка аккаунта не сдвигает кольцо");
+});
+
+test("ник в карточке всегда: логин, иначе id аккаунта, как в чипах", () => {
+  assert.ok(popup.includes("function accountName(account)") && popup.includes("account?.login || account?.id"));
+  assert.ok(popup.includes('state.user?.login || activeLogin("twitch")'), "основная карточка Twitch");
+  assert.ok(popup.includes('state.user || activeLogin("kick")'), "основная карточка Kick");
+  assert.ok(popup.includes("info.login || accountName(account)"), "карточки остальных аккаунтов");
+});

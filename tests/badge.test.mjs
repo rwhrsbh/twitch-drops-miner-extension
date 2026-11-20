@@ -82,3 +82,34 @@ test("normal tick: badge at 100% is claimed through claimQueueExtras", async () 
   assert.equal(again.claimed, true);
   assert.equal(calls, 0);
 });
+
+test("reward-group badge (BADGE, status stays IN_PROGRESS): done once minutes >= required", async () => {
+  // Pokemon Evolutions: Twitch выдаёт значок сам и не переводит группу в CLAIMABLE.
+  const base = {
+    kind: "reward", badge: true, status: "IN_PROGRESS", game: "Pokemon Evolutions", gameId: "g3",
+    required: 20, claimed: false, campaignId: "c3", image: "",
+  };
+  const exact = { ...base, id: "r1", name: "Gengar", current: 20 };
+  const over = { ...base, id: "r2", name: "Haunter", current: 56 };
+  const short = { ...base, id: "r3", name: "Pikachu", current: 19 };
+  const out = await miner.claimQueueExtras(auth, [exact, over, short], "en");
+  assert.deepEqual(out.claimed, ["Gengar (Pokemon Evolutions)", "Haunter (Pokemon Evolutions)"]);
+  assert.equal(exact.claimed, true);
+  assert.equal(over.claimed, true);
+  assert.equal(short.claimed, false);
+  assert.equal(calls, 0);
+});
+
+test("stale saved rows (badge false) of a stuck reward group are still closed by the tick", async () => {
+  const base = {
+    kind: "reward", badge: false, game: "Pokemon", gameId: "g4", required: 20, claimed: false,
+    campaignId: "c4", image: "",
+  };
+  const stuck = { ...base, id: "s1", name: "Charizard", status: "IN_PROGRESS", current: 56 };
+  const justDone = { ...base, id: "s2", name: "Venusaur", status: "IN_PROGRESS", current: 20 };
+  const chest = { ...base, id: "s3", name: "GTA DVD Chest", status: "CLAIMABLE", current: 20 };
+  await miner.claimQueueExtras(auth, [stuck, justDone, chest], "en");
+  assert.equal(stuck.claimed, true);
+  assert.equal(justDone.claimed, false, "на минуту больше нормы, ещё не раньше");
+  assert.equal(chest.claimed, false, "настоящий сундук идёт через claimReward, а не как значок");
+});
