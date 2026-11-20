@@ -59,7 +59,7 @@ function clientMock() {
       return "claimed";
     },
     // Reward-сундуки в соло не участвуют, но lib/miner.js импортирует claimReward.
-    claimReward: async (_auth, drop) => { calls.push({ what: "claimReward", id: drop.id }); return false; },
+    claimReward: async (_auth, drop, opts) => { calls.push({ what: "claimReward", id: drop.id, auto: opts?.auto }); return false; },
     currentDrop: async () => null,
     discoverSpadeUrl: async () => "https://spade.twitch.tv/track",
     readInventory: async () => inventory,
@@ -184,8 +184,32 @@ test("solo: готовый сундук другой игры идёт чере�
     }],
   };
   await miner.tick("test");
-  assert.ok(calls.some((call) => call.what === "claimReward" && call.id === "g1"), "сундук ушёл в claimReward");
+  const reward = calls.find((call) => call.what === "claimReward" && call.id === "g1");
+  assert.ok(reward, "сундук ушёл в claimReward");
+  assert.equal(reward.auto, false, "без настройки автовыбор выключен");
   assert.ok(!calls.some((call) => call.what === "claimDrop" && call.id === "g1"), "claimDrop для сундука не зовётся");
+});
+
+test("solo: автовыбор награды из сундука передаётся в claimReward", async (t) => {
+  summaries = [
+    campaign("c1", rust, [drop("r1", "Skin", 60, 10)]),
+    campaign("rw", dota, [drop("g1", "Chest", 60, 60)]),
+  ];
+  inventory = [];
+  streamGame = rust;
+  const miner = await boot(t, { soloTwitch: "111", autoRewardChoice: true });
+  store.local.state = {
+    enabled: true, lang: "ru",
+    queue: [{
+      id: "g1", name: "Chest", game: "Dota 2", gameId: "222", campaignId: "rw", campaignName: "Reward",
+      required: 60, current: 60, claimed: false, claimId: "", benefits: ["Chest"], image: "",
+      kind: "reward", status: "CLAIMABLE", repeatableTimes: 6, grantCount: 0,
+    }],
+  };
+  await miner.tick("test");
+  const reward = calls.find((call) => call.what === "claimReward" && call.id === "g1");
+  assert.ok(reward, "сундук ушёл в claimReward");
+  assert.equal(reward.auto, true, "включённая настройка доходит до claimReward");
 });
 
 test("solo: значок другой игры не клеймится как обычный дроп", async (t) => {

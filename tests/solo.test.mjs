@@ -88,6 +88,15 @@ test("settings: soloGame нормализует, isSolo сравнивает id 
   assert.equal(settingsLib.isSolo({}, "kick", "Rust"), false);
 });
 
+test("settings: автовыбор награды по умолчанию выключен и включается", async () => {
+  store.local = {};
+  assert.equal((await settingsLib.readSettings()).autoRewardChoice, false);
+  await settingsLib.writeSettings({ autoRewardChoice: true });
+  assert.equal((await settingsLib.readSettings()).autoRewardChoice, true);
+  await settingsLib.writeSettings({ autoRewardChoice: false });
+  assert.equal((await settingsLib.readSettings()).autoRewardChoice, false);
+});
+
 test("settings: выключение соло очищает поле, а не оставляет слово «off»", async () => {
   store.local = {};
   await settingsLib.writeSettings({ soloTwitch: " 42 " });

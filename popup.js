@@ -16,7 +16,7 @@ function phaseLink(phase) {
 }
 
 let latest = null;
-let settings = { autoAll: false, blacklist: [] };
+let settings = { autoAll: false, autoRewardChoice: false, blacklist: [] };
 let blackFilter = "";
 let filterText = "";
 
@@ -1005,6 +1005,9 @@ function renderSettings() {
   $("auto-title").textContent = L("autoTitle");
   $("auto-hint").textContent = L("autoHint");
   $("auto").setAttribute("aria-pressed", settings.autoAll ? "true" : "false");
+  $("reward-choice-label").textContent = L("rewardChoiceTitle");
+  $("reward-choice-hint").textContent = L("rewardChoiceHint");
+  $("reward-choice").setAttribute("aria-pressed", settings.autoRewardChoice ? "true" : "false");
   $("black-title").textContent = L("blackTitle");
   $("black-hint").textContent = L("blackHint");
   $("black").classList.toggle("dim", !settings.autoAll);
@@ -1038,6 +1041,8 @@ $("gear").addEventListener("click", () => {
 });
 
 $("auto").addEventListener("click", () => saveSettings({ autoAll: !settings.autoAll }));
+
+$("reward-choice").addEventListener("click", () => saveSettings({ autoRewardChoice: !settings.autoRewardChoice }));
 
 $("black-filter").addEventListener("input", (event) => {
   blackFilter = event.target.value;

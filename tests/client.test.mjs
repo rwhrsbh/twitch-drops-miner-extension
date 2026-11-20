@@ -197,8 +197,22 @@ test("reward chest: opened only when Twitch returns a set of options", async () 
         { id: "o2", name: "Gold", isAvailable: true },
       ],
     };
+    // Один доступный вариант: выбирать не из чего — берём без автовыбора.
     assert.equal(await client.claimReward(auth, drop), "claimed");
     assert.deepEqual(sent, [{ input: { optionSetID: "set1", optionID: "o2" } }]);
+    // Два доступных варианта: без автовыбора не выбираем, с автовыбором берём первый.
+    sent.length = 0;
+    options = {
+      id: "set2",
+      options: [
+        { id: "o1", name: "Bronze", isAvailable: true },
+        { id: "o2", name: "Gold", isAvailable: true },
+      ],
+    };
+    assert.equal(await client.claimReward(auth, drop), "choice");
+    assert.equal(sent.length, 0);
+    assert.equal(await client.claimReward(auth, drop, { auto: true }), "claimed");
+    assert.deepEqual(sent, [{ input: { optionSetID: "set2", optionID: "o1" } }]);
   } finally {
     globalThis.fetch = saved;
   }
