@@ -625,13 +625,20 @@ const INVENTORY = "https://www.twitch.tv/drops/inventory";
 function paintRewardNote(state, on) {
   const note = $("reward-note");
   if (!note) return;
-  const rows = on && Array.isArray(state?.rewardChoice) ? state.rewardChoice : [];
+  // Подсказка того аккаунта, чей чип выбран сверху: у параллельного свои сундуки, и выбрать награду
+  // можно только в браузере под ним — кнопка сначала переключает браузер на него.
+  const other = viewedSide("twitch");
+  const source = other || state;
+  const rows = on && Array.isArray(source?.rewardChoice) ? source.rewardChoice : [];
   note.classList.toggle("hidden", !rows.length);
   if (!rows.length) return;
   const names = rows.map((row) => `${row.name || "?"}${row.game ? ` (${row.game})` : ""}`).join(", ");
-  const account = state.user?.login || activeLogin("twitch") || "Twitch";
+  const viewed = side("twitch").list.find((item) => item.id === viewedId("twitch"));
+  const account = other ? accountName(viewed) || other.login || "Twitch" : state.user?.login || activeLogin("twitch") || "Twitch";
   $("reward-note-text").textContent = L("rewardChoiceNote", { account, names });
-  $("reward-note-open").textContent = L("rewardChoiceOpen");
+  const button = $("reward-note-open");
+  button.textContent = L(other ? "rewardChoiceSwitch" : "rewardChoiceOpen");
+  button.dataset.account = other ? viewedId("twitch") : "";
 }
 
 // Эксклюзивный дроп без канала в сети и в нужной игре выбрать нельзя: минуты там не идут.
@@ -758,7 +765,10 @@ $("inventory-2").addEventListener("click", () => {
   chrome.tabs.create({ url: "https://www.twitch.tv/drops/inventory" });
 });
 
-$("reward-note-open").addEventListener("click", () => {
+$("reward-note-open").addEventListener("click", async (event) => {
+  const account = event.currentTarget.dataset.account || "";
+  // Награду выбирают в инвентаре того аккаунта, чей это сундук: сначала ставим его в браузер.
+  if (account) applyAccounts(await send({ type: "switchAccount", platform: "twitch", id: account }));
   chrome.tabs.create({ url: INVENTORY });
 });
 
@@ -1482,7 +1492,7 @@ function renderHome(mode) {
     const oldest = mine.list.find((item) => !item.expired);
     const options = [["", L("homeAuto", { login: accountName(oldest) || "—" }), false]]
       .concat(mine.list.map((item) => [item.id, item.expired ? `${accountName(item)} · ${L("accountExpired")}` : accountName(item), item.expired]));
-    const target = mine.list.find((item) => item.id === mine.homeId);
+    const target = mine.list.find((item) => item.id === (mine.returnId || mine.homeId));
     const waiting = mine.back && target && mine.active !== target.id;
     const hint = waiting ? L("homeWaiting", { login: accountName(target) }) : L(platform === "kick" ? "homeHintKick" : "homeHint", { site });
     rows.push(`
@@ -1581,11 +1591,17 @@ $("home-rows").addEventListener("change", async (event) => {
   const select = event.target.closest("select[data-home]");
   if (!select) return;
   select.disabled = true;
+  // Фокус снимаем до ответа: иначе renderHome пропустил бы перерисовку и подсказка «Вернём…» отстала бы.
+  select.blur();
+  let next = null;
   try {
-    applyAccounts(await send({ type: "setBrowserAccount", platform: select.dataset.home, id: select.value }));
+    next = await send({ type: "setBrowserAccount", platform: select.dataset.home, id: select.value });
   } finally {
     select.disabled = false;
-    select.blur();
+    // Ответа нет — список должен показать сохранённое, а не несохранённый выбор.
+    if (!next) $("home-rows").__html = "";
+    if (next) applyAccounts(next);
+    else renderAccounts();
   }
 });
 $("rotate-limit").addEventListener("change", async (event) => {
@@ -1634,11 +1650,14 @@ function publicSide(raw) {
   // То же правило, что homeId в lib/accounts.js: выбранный, если его сессия жива, иначе — самый старый.
   const chosen = home ? list.find((item) => item.id === home) : null;
   const homeId = home ? (chosen && !chosen.expired ? chosen.id : "") : list.find((item) => !item.expired)?.id || "";
+  // Как returnId в lib/accounts.js: в «авто» возвращаем тот, с которого браузер увели.
+  const from = !home && raw?.back?.from ? list.find((item) => item.id === raw.back.from && !item.expired) : null;
   return {
     active: raw?.active || "",
     done: raw?.done || 0,
     home,
     homeId,
+    returnId: from ? from.id : homeId,
     back: raw?.back || null,
     list,
   };

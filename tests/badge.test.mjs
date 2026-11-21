@@ -167,3 +167,44 @@ test("repeatable chest without a window: a live mark does not hide a fresh windo
   assert.equal(stuck.drops[0].claimed, true, "застрявшая на норме группа остаётся отмеченной");
   assert.deepEqual(again.claimed, [], "без второй записи в истории");
 });
+
+test("main miner claims every ready drop of a promoted account, the old stuck one and the new one", async () => {
+  const before = calls;
+  const camp = {
+    id: "c11", name: "Rust", game: { id: "g11", name: "Rust" },
+    drops: ["old", "new"].map((id) => ({
+      id, name: id, benefits: [id], image: "", required: 10, current: 10, claimed: false, claimId: `i-${id}`, campaignId: "c11",
+    })),
+  };
+  const out = await miner.claimReady(auth, [camp], "en");
+  assert.equal(calls - before, 2, "клейм ушёл по обоим дропам");
+  assert.equal(out.failed.length + out.claimed.length, 2);
+});
+
+test("stuck repeatable group without a window: next 6-hour slice does not write the history again", async () => {
+  const history = await import("../lib/history.js");
+  const realNow = Date.now;
+  const slice = 6 * 3600e3;
+  const start = Math.floor(realNow() / slice) * slice + 1000;
+  const chest = () => ({
+    id: "c12", name: "GTA", game: { id: "g12", name: "GTA VI" },
+    drops: [{
+      id: "stuck12", kind: "reward", name: "Ball", benefits: ["Ball"], image: "", required: 60, current: 61, claimed: false,
+      badge: true, status: "IN_PROGRESS", grantCount: 0, repeatableTimes: 6, windowEndsAt: 0, campaignId: "c12",
+    }],
+  });
+  try {
+    Date.now = () => start;
+    const first = await miner.claimReady(auth, [chest()], "en");
+    assert.deepEqual(first.claimed, ["Ball (GTA VI)"]);
+    const count = (await history.readHistory()).filter((row) => row.name === "Ball").length;
+    Date.now = () => start + slice;
+    const next = chest();
+    const second = await miner.claimReady(auth, [next], "en");
+    assert.equal(next.drops[0].claimed, true, "отметка продлена");
+    assert.deepEqual(second.claimed, [], "уже забранное в историю второй раз не пишется");
+    assert.equal((await history.readHistory()).filter((row) => row.name === "Ball").length, count);
+  } finally {
+    Date.now = realNow;
+  }
+});

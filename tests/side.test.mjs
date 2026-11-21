@@ -503,6 +503,61 @@ test("twitch solo: второй аккаунт держит канал, кото
   }
 });
 
+test("twitch: аккаунт, чей дроп не забрался и в прошлый раз, не поднимается ради того же дропа", async () => {
+  await twitchReset();
+  const drop = (id) => ({
+    id, name: id, benefits: [id], benefitIds: [], required: 60, current: 0, claimed: false,
+    channels: [], preconditionIds: [], campaignId: "c1", campaignName: "Rust drops", game: { id: "g1", name: "Rust" },
+  });
+  let ready = ["d1"];
+  const setCatalog = () => miner.seedCatalog([{
+    id: "c1", name: "Rust drops", linked: true, game: { id: "g1", name: "Rust", slug: "rust", image: "" }, channels: [],
+    drops: [drop("d1"), drop("d2")],
+  }]);
+  setCatalog();
+  store.local.accounts.twitch.list[1].whitelist = ["g1"];
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).includes("gql.twitch.tv")) {
+      const payload = JSON.parse(init.body || "{}");
+      const operation = (Array.isArray(payload) ? payload[0] : payload)?.operationName;
+      const json = (body) => new Response(JSON.stringify(body), { status: 200 });
+      if (operation === "Inventory") {
+        return json({ data: { currentUser: { inventory: { dropCampaignsInProgress: [{ id: "c1", timeBasedDrops: ready.map((id) => ({
+          id, self: { currentMinutesWatched: 60, dropInstanceID: `inst-${id}`, isClaimed: false },
+        })) }] } } } });
+      }
+      // Клейм без integrity отклоняется — аккаунту нужен браузер.
+      if (/Claim/i.test(operation || "")) return json({ errors: [{ message: "failed integrity check" }] });
+      return json({ data: {} });
+    }
+    return inner(url, init);
+  };
+  const home = await import("../lib/home.js");
+  try {
+    let result = await side.sideTick();
+    assert.deepEqual(store.local.side["2"].needIds, ["d1"], "ради чего нужен браузер");
+    assert.deepEqual(result, { switchTo: "2" }, "без блока поднимаем");
+    // Браузер вернулся домой, а d1 так и не забрался.
+    await home.blockAccount("2", ["d1"]);
+    side.resetSide();
+    store.session.sidePromo = { at: 0, by: {} };
+    setCatalog();
+    result = await side.sideTick();
+    assert.deepEqual(result, {}, "тот же дроп — браузер не уводим");
+    // Созрел ещё один дроп: поднимаем, и майнер заберёт оба.
+    ready = ["d1", "d2"];
+    side.resetSide();
+    store.session.sidePromo = { at: 0, by: {} };
+    setCatalog();
+    result = await side.sideTick();
+    assert.deepEqual(store.local.side["2"].needIds, ["d1", "d2"]);
+    assert.deepEqual(result, { switchTo: "2" });
+  } finally {
+    globalThis.fetch = inner;
+  }
+});
+
 // ---- Находки ревью ----
 
 const baseFetch = globalThis.fetch;

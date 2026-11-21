@@ -827,3 +827,68 @@ test("browser account works the same for kick: a chosen account is put into the 
   assert.equal((await accounts.readAccounts()).kick.back, null);
   assert.equal(accounts.publicAccounts(await accounts.readAccounts()).kick.homeId, "12");
 });
+
+test("browser account, auto: returns to the account that was in the browser, not to the oldest", async () => {
+  const h = await three();
+  const home = await import("../lib/home.js");
+  store.local.state = { phase: "watching", queue: [] };
+  // Пользователь сам держит в браузере Кэрол (не самую старую).
+  await accounts.switchTo("twitch", "3", h);
+  // Integrity понадобился самой старой Алисе: браузер уходит к ней и потом возвращается к Кэрол.
+  await accounts.switchTo("twitch", "1", h, true);
+  let data = await accounts.readAccounts();
+  assert.equal(data.twitch.back.from, "3");
+  assert.equal(await home.homeTarget("twitch", Date.now() + home.MIN_AWAY + 1000), "3");
+  // Цепочка автосмен помнит исходный аккаунт.
+  await accounts.switchTo("twitch", "2", h, true);
+  data = await accounts.readAccounts();
+  assert.equal(data.twitch.back.from, "3");
+  await accounts.switchTo("twitch", "3", h, true);
+  assert.equal((await accounts.readAccounts()).twitch.back, null);
+  assert.equal(token(), "tokC");
+});
+
+test("auto switches leave the user's tabs alone; manual switches reload them", async () => {
+  const h = await three();
+  reloaded.length = 0;
+  await accounts.switchTo("twitch", "2", h, true);
+  assert.equal(token(), "tokB");
+  assert.deepEqual(reloaded, [], "вкладки пользователя не перезагружаются");
+  await accounts.switchTo("twitch", "1", h);
+  assert.ok(reloaded.length > 0, "ручная смена — перезагружаем, чтобы пользователь видел новый аккаунт");
+});
+
+test("choosing Auto drops a pending return to the old choice; changing the mode drops any pending return", async () => {
+  const h = await three();
+  const home = await import("../lib/home.js");
+  store.local.state = {};
+  await accounts.setHome("twitch", "3");
+  assert.equal((await accounts.readAccounts()).twitch.back.reason, "select");
+  await accounts.setHome("twitch", "");
+  assert.equal((await accounts.readAccounts()).twitch.back, null, "«Авто» само ничего не переключает");
+  assert.equal(await home.homeTarget("twitch"), "");
+  await accounts.switchTo("twitch", "2", h, true);
+  assert.equal((await accounts.readAccounts()).twitch.back.reason, "auto");
+  await accounts.setRotation({ mode: "campaigns" });
+  await accounts.setRotation({ mode: "all" });
+  assert.equal((await accounts.readAccounts()).twitch.back, null);
+});
+
+test("an account whose drop did not get claimed is not promoted again for the same drop", async () => {
+  const home = await import("../lib/home.js");
+  reset();
+  store.local.state = { phase: "claim-pending", queue: [
+    { id: "d1", required: 10, current: 10, claimed: false },
+    { id: "r1", kind: "reward", status: "CLAIMABLE", required: 60, current: 60, claimed: false },
+    { id: "c1", kind: "reward", status: "CLAIMABLE", required: 60, current: 60, claimed: false },
+    { id: "w1", required: 10, current: 3, claimed: false },
+  ], rewardChoice: [{ id: "c1" }] };
+  assert.deepEqual(home.readyIds(store.local.state), ["d1", "r1"], "сундук с выбором и недобранный не в счёт");
+  await home.blockAccount("2", home.readyIds(store.local.state));
+  const blocks = await home.readBlocks();
+  assert.equal(home.promotable("2", { needsMain: true, needIds: ["d1"] }, blocks), false, "тот же дроп — не поднимаем");
+  assert.equal(home.promotable("2", { needsMain: true, needIds: ["d1", "d2"] }, blocks), true, "новый дроп — поднимаем, майнер заберёт оба");
+  assert.equal(home.promotable("3", { needsMain: true, needIds: ["d1"] }, blocks), true, "блок у каждого аккаунта свой");
+  assert.equal(home.promotable("2", { needsMain: false }, blocks), false);
+  assert.equal(home.promotable("2", { needsMain: true, needIds: ["d1"] }, await home.readBlocks(Date.now() + 25 * 3600e3)), true, "блок живёт сутки");
+});

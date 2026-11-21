@@ -269,3 +269,15 @@ test("solo: значковая кампания со ссылкой на twitch.
   const multi = { id: "m", kind: "reward", linked: true, game: { id: "999" }, games: [{ id: "999" }, { id: "111" }] };
   assert.deepEqual(miner.soloCampaigns([self, other, multi], "111").map((item) => item.id), ["b", "m"]);
 });
+
+test("solo: кампания со ссылкой на twitch.tv, непривязанная у основного, всё равно идёт в каталог другим аккаунтам", async (t) => {
+  const self = { ...campaign("sl", rust, [drop("s1", "Gear", 60, 0)]), linked: false, selfLink: true };
+  summaries = [self];
+  inventory = [];
+  streamGame = rust;
+  const miner = await boot(t, { soloTwitch: "111" });
+  miner.wantSideGames(["111"], true);
+  const state = await miner.tick("test");
+  assert.ok(!state.queue.some((row) => row.id === "s1"), "основной её не фармит: не привязана");
+  assert.ok(miner.readCatalog().campaigns.some((item) => item.id === "sl"), "но в каталоге для других аккаунтов она есть");
+});

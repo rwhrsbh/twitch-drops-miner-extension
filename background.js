@@ -17,7 +17,7 @@ import {
   switchTo,
   syncCurrent,
 } from "./lib/accounts.js";
-import { readAuth, resetSession, searchChannels } from "./lib/client.js";
+import { forgetTab, noteTabLoad, readAuth, resetSession, searchChannels } from "./lib/client.js";
 import { clearHistory, readHistory } from "./lib/history.js";
 import { installKickRules, kickTick, readKick, resetKickAccount, setKickEnabled, twitchPickedNames, watchKickDrop } from "./lib/kick.js";
 import {
@@ -44,7 +44,7 @@ import {
 } from "./lib/kickpoints.js";
 import { kickCasesTick, openKickCase, readKickCases, setKickCasesEnabled } from "./lib/kickcases.js";
 import { rotate } from "./lib/rotation.js";
-import { homeTarget } from "./lib/home.js";
+import { blockAccount, homeTarget, readyIds } from "./lib/home.js";
 import { loadHashes, refreshHashes } from "./lib/remote.js";
 import { readSettings, writeSettings } from "./lib/settings.js";
 
@@ -169,7 +169,15 @@ async function runSide() {
 async function returnHome(platform, inQueue = false) {
   const id = await homeTarget(platform).catch(() => "");
   if (!id) return;
-  const work = () => switchTo(platform, id, hooks, true);
+  const work = async () => {
+    // Уходим, а готовые дропы аккаунта так и не забрались: ради них же браузер больше не уводим.
+    if (platform === "twitch") {
+      const { state, accounts } = await chrome.storage.local.get(["state", "accounts"]);
+      const leaving = accounts?.twitch?.active || "";
+      if (leaving && leaving !== id) await blockAccount(leaving, readyIds(state));
+    }
+    return switchTo(platform, id, hooks, true);
+  };
   await (inQueue ? work() : serial(work)).catch(() => {});
 }
 
@@ -183,6 +191,15 @@ function nudge() {
 
 chrome.tabs.onCreated.addListener((tab) => {
   noteAddTab(tab).catch(() => {});
+});
+
+// Под каким аккаунтом загружена вкладка Twitch: после автосмены вкладки пользователя не перезагружаются,
+// и integrity из вкладки прежнего аккаунта брать нельзя (lib/client.js).
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (change.status === "loading") noteTabLoad(tabId, tab?.url || change.url || "").catch(() => {});
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  forgetTab(tabId).catch(() => {});
 });
 
 chrome.runtime.onInstalled.addListener(() => {
