@@ -651,7 +651,7 @@ test("twitch: активный аккаунт умер — активным ст
   assert.deepEqual(await side.sideTick(), {});
   assert.deepEqual(await side.sideTick(), {});
   store.session.sideOrphan = Date.now() - 4 * 60 * 1000;
-  assert.deepEqual(await side.sideTick(), { switchTo: "2" });
+  assert.deepEqual(await side.sideTick(), { switchTo: "2", orphan: true });
   // Активный вернулся: отсчёт сброшен.
   await twitchReset();
   store.session.sideOrphan = Date.now() - 4 * 60 * 1000;

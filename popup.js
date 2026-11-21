@@ -1708,7 +1708,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
     addingNow = changes.accountAdd.newValue?.platform || "";
     renderAccounts();
     send({ type: "getAccounts" }).then(applyAccounts);
-    return;
   }
   if (area !== "local") return;
   if (changes.points?.newValue) {

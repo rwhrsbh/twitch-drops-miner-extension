@@ -1196,3 +1196,26 @@ test("removing the chosen browser account while its return waits does not pull t
   assert.equal(data.twitch.back, null);
   assert.equal(await home.homeTarget("twitch"), "", "на самый старый A без спроса не уводим");
 });
+
+test("closing the add window when storage refuses writes still gives the previous account its cookies back", async () => {
+  for (const signedIn of [false, true]) {
+    reset(); login("tokA");
+    const h = hooks();
+    await accounts.syncCurrent("twitch", h);
+    const { windowId } = await accounts.startAdd("twitch", h);
+    // Без входа сайт разлогинен; со входом — под B (тогда закрытие окна завершает добавление).
+    if (signedIn) login("tokB");
+    const realSet = chrome.storage.local.set;
+    chrome.storage.local.set = async (value) => {
+      if (value.accounts) throw new Error("QUOTA_BYTES quota exceeded");
+      return realSet(value);
+    };
+    try {
+      await accounts.cancelAdd(windowId, h).catch(() => null);
+    } finally {
+      chrome.storage.local.set = realSet;
+    }
+    assert.equal(token(), "tokA", `куки прежнего аккаунта вернулись (вход: ${signedIn})`);
+    assert.equal((await chrome.storage.local.get("accountAdd")).accountAdd, undefined);
+  }
+});

@@ -179,6 +179,14 @@ async function runSide() {
       // уходим, ставим тот же блок, что при возврате домой, — иначе его подняли бы снова ради тех же дропов.
       // Считаем внутри очереди (state ещё уходящего аккаунта), а ставим только после удавшейся смены.
       check: async () => {
+        // Решение «активного нет» принято вне очереди: пока ждали, мог войти новый аккаунт (окно добавления).
+        // Тогда уводить браузер с него нельзя.
+        if (side.orphan) {
+          const { accounts } = await chrome.storage.local.get("accounts");
+          const twitch = accounts?.twitch || {};
+          const current = (twitch.list || []).find((item) => item.id === twitch.active);
+          if (current && !current.expired) return false;
+        }
         block = await leavingBlock(side.switchTo);
         // Integrity понадобился самому дому: это и есть возврат (back снимется), а returnHome уже не сработает.
         const { accounts } = await chrome.storage.local.get("accounts");
