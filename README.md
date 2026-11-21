@@ -73,7 +73,7 @@ The mode covers every account, including the ones farming in parallel. Kick acco
 
 ## Accounts
 
-Settings → Accounts keeps several Twitch and Kick accounts. "Add account" opens a login window; after sign-in the session cookies are saved and the browser returns to the previous account. Each account has its own picked games.
+Settings → Accounts keeps several Twitch and Kick accounts. "Add account" opens a login window; after sign-in the session cookies are saved and the browser returns to the previous account. The window is separate, but cookies are shared by the whole browser profile, so while it is open the site is signed out for every tab: tabs that were already open keep the previous account in the page and are left alone, Twitch tabs that loaded meanwhile are reloaded afterwards (Kick tabs are all reloaded, as before). An integrity token that expires within a minute is never taken from a tab. Each account has its own picked games.
 
 "Several accounts" has four modes. **All at once** (default): the account the browser is signed in to is farmed as usual, and every other saved account farms at the same time by its own saved token, without touching the browser cookies. Twitch refuses to claim a drop without an integrity token, which only the browser's account can get, so when another account has a drop to claim the extension swaps the site cookies to make it the browser's account (at most once in 10 minutes); the browser is then signed in as that account and open Twitch tabs reload. **After campaigns** / **When all is farmed**: accounts take turns by swapping cookies. **Never**: only by hand.
 

@@ -45,7 +45,7 @@ globalThis.chrome = {
     },
   },
   tabs: {
-    query: async () => [{ id: 9 }],
+    query: async () => [{ id: 9 }, { id: 10 }],
     reload: async (id) => { reloaded.push(id); },
     get: async (id) => ({ id, url: tabUrls[id] || "" }),
     update: async (id, patch) => { tabUrls[id] = patch.url; },
@@ -150,7 +150,23 @@ test("add account: login window, cookies saved, browser returns to the previous 
   assert.equal(data.twitch.active, "1");
   assert.equal(token(), "tokA");                   // вернулись к прежнему аккаунту
   assert.deepEqual(windows.removed, [51]);
-  assert.ok(reloaded.length > 0);
+});
+
+test("add window: only tabs that loaded while it was open are reloaded afterwards", async () => {
+  reset(); login("tokA");
+  const h = hooks();
+  const client = await import("../lib/client.js");
+  await accounts.syncCurrent("twitch", h);
+  // Вкладка 9 открыта до окна входа: живёт аккаунтом A.
+  await client.noteTabLoad(9, "https://www.twitch.tv/a");
+  await accounts.startAdd("twitch", h);
+  // Пока окно открыто, пользователь открыл вкладку 10: куки общие, она грузится разлогиненной.
+  await client.noteTabLoad(10, "https://www.twitch.tv/b");
+  assert.equal((await client.tabAccounts([10]))[10], client.UNKNOWN_TAB);
+  login("tokB");
+  await accounts.finishAdd(h);
+  assert.equal(token(), "tokA");
+  assert.deepEqual(reloaded, [10], "перезагружена только вкладка, загруженная во время окна входа");
 });
 
 test("closing the login window without signing in restores the session", async () => {

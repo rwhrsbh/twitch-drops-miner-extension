@@ -377,3 +377,12 @@ test("tab accounts: a tab closed while its record was written does not leave the
   assert.deepEqual(await tabAccounts([41]), {});
   closedTabs.delete(41);
 });
+
+test("integrity from a tab: an expired or almost expired token is not used", () => {
+  const now = 1_800_000_000_000;
+  assert.equal(client.integrityAlive({ "integrity-expiration": String(now + 10 * 60e3) }, now), true);
+  assert.equal(client.integrityAlive({ "integrity-expiration": String(now + 30e3) }, now), false, "меньше минуты — не берём");
+  assert.equal(client.integrityAlive({ "integrity-expiration": String(now - 1) }, now), false, "протух");
+  assert.equal(client.integrityAlive({ "integrity-expiration": String((now + 10 * 60e3) / 1000) }, now), true, "срок в секундах");
+  assert.equal(client.integrityAlive({}, now), true, "срока нет — как раньше");
+});
