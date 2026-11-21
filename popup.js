@@ -445,16 +445,42 @@ function paintSwitches(twitch, kick) {
   $("kick-toggle").setAttribute("aria-pressed", flag(kickOn));
 }
 
+// Кто сейчас в куках сайта. Источник — список аккаунтов: расширение сверяет его с куками после каждой
+// подмены и раз в минуту. Состояние майнера для этого не годится: после смены аккаунта оно сброшено
+// до конца первого прохода, и шапка показывала бы «нет входа» или прежний ник.
+// undefined — аккаунтов расширение ещё не знает, тогда верим майнеру; "" — сессия этого аккаунта умерла.
+function cookieLogin(platform) {
+  const mine = side(platform);
+  if (!mine.list.length || !mine.active) return undefined;
+  const entry = mine.list.find((item) => item.id === mine.active);
+  if (!entry) return undefined;
+  return entry.expired ? "" : accountName(entry);
+}
+
+// Браузер временно на другом аккаунте ради клейма: кого вернём (только «Все сразу»).
+function returnNote(platform) {
+  const mine = side(platform);
+  if (accounts?.rotate?.mode !== "all" || !mine.back) return "";
+  const target = mine.list.find((item) => item.id === (mine.returnId || mine.homeId));
+  if (!target || target.id === mine.active) return "";
+  return ` (${L("browserBack", { login: accountName(target) })})`;
+}
+
 function paintAccount() {
-  const twitch = latest?.user?.login || "";
+  const twitchCookie = cookieLogin("twitch");
+  const twitch = twitchCookie !== undefined ? twitchCookie : latest?.user?.login || "";
   // Ник Kick мог не прочитаться, хотя сессия жива: тогда пишем просто «вход выполнен».
   const kickIn = Boolean(kickState) && kickState.enabled !== undefined && kickState.phase !== "need-login"
     && (Boolean(kickState.user) || ["watching", "no-channel", "all-claimed"].includes(kickState.phase));
-  const kick = kickIn ? kickState.user || L("signedShort") : "";
+  const kickCookie = cookieLogin("kick");
+  const kick = kickCookie !== undefined ? kickCookie : kickIn ? kickState.user || L("signedShort") : "";
   let text;
   if (!twitch && !kick) text = L("noLoginBoth");
   // Это аккаунты самого браузера: под ними пользователь окажется, открыв twitch.tv или kick.com.
-  else text = `${L("browserAs")}: Twitch ${twitch || L("noLoginShort")} · Kick ${kick || L("noLoginShort")}`;
+  else {
+    text = `${L("browserAs")}: Twitch ${twitch ? twitch + returnNote("twitch") : L("noLoginShort")}`
+      + ` · Kick ${kick ? kick + returnNote("kick") : L("noLoginShort")}`;
+  }
   $("account").textContent = text;
 }
 
@@ -1518,6 +1544,7 @@ function applyAccounts(next) {
   accounts = next;
   renderExtras();
   if (latest) render(latest);
+  else paintAccount();
 }
 
 function startAdd(platform) {
@@ -1698,6 +1725,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     const raw = changes.accounts.newValue;
     accounts = { twitch: publicSide(raw.twitch), kick: publicSide(raw.kick), rotate: raw.rotate || accounts?.rotate, warned: Boolean(raw.warned) };
     renderExtras();
+    // Сменился аккаунт в куках: шапка «В браузере» сразу, не дожидаясь прохода майнера.
+    paintAccount();
   }
 });
 
