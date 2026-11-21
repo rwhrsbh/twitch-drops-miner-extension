@@ -8,6 +8,7 @@ const calls = [];
 let summaries = [];
 let inventory = [];
 let streamGame = { id: "111", name: "Rust" };
+let rewardAnswer = false;
 
 globalThis.chrome = {
   storage: {
@@ -59,7 +60,7 @@ function clientMock() {
       return "claimed";
     },
     // Reward-сундуки в соло не участвуют, но lib/miner.js импортирует claimReward.
-    claimReward: async (_auth, drop, opts) => { calls.push({ what: "claimReward", id: drop.id, auto: opts?.auto }); return false; },
+    claimReward: async (_auth, drop, opts) => { calls.push({ what: "claimReward", id: drop.id, auto: opts?.auto }); return rewardAnswer; },
     currentDrop: async () => null,
     discoverSpadeUrl: async () => "https://spade.twitch.tv/track",
     readInventory: async () => inventory,
@@ -81,6 +82,7 @@ function clientMock() {
 
 async function boot(t, settings) {
   calls.length = 0;
+  rewardAnswer = false;
   store.local = { settings, state: { enabled: true, lang: "ru" } };
   t.mock.module("../lib/client.js", { namedExports: clientMock() });
   t.mock.module("../lib/accounts.js", { namedExports: { noteCampaignDone: async () => {} } });
@@ -230,4 +232,40 @@ test("solo: значок другой игры не клеймится как о
   await miner.tick("test");
   assert.ok(!calls.some((call) => call.what === "claimDrop" && call.id === "b1"), "claimDrop для значка не зовётся");
   assert.ok(Object.keys(store.local.badgeDrops || {}).some((key) => key.endsWith(":b1")), "значок отмечен выданным");
+});
+
+test("solo: сундук с выбором награды попадает в подсказку попапа и в журнал один раз", async (t) => {
+  summaries = [
+    campaign("c1", rust, [drop("r1", "Skin", 60, 10)]),
+    campaign("rw", dota, [drop("g1", "Chest", 60, 60)]),
+  ];
+  inventory = [];
+  streamGame = rust;
+  const miner = await boot(t, { soloTwitch: "111" });
+  rewardAnswer = "choice";
+  const row = {
+    id: "g1", name: "Chest", game: "Dota 2", gameId: "222", campaignId: "rw", campaignName: "Reward",
+    required: 60, current: 60, claimed: false, claimId: "", benefits: ["Chest"], image: "",
+    kind: "reward", status: "CLAIMABLE", repeatableTimes: 6, grantCount: 0,
+  };
+  store.local.state = { enabled: true, lang: "ru", queue: [row] };
+  const first = await miner.tick("test");
+  assert.deepEqual(first.rewardChoice.map((item) => item.id), ["g1"]);
+  const lines = (state) => (state.log || []).filter((line) => /rewardChoiceLog/.test(line.text)).length;
+  assert.equal(lines(first), 1);
+  store.local.state = { ...store.local.state, queue: [row] };
+  const second = await miner.tick("test");
+  assert.equal(lines(second), 1, "повторный проход не дублирует строку журнала");
+  rewardAnswer = "claimed";
+  store.local.state = { ...store.local.state, queue: [row] };
+  const third = await miner.tick("test");
+  assert.deepEqual(third.rewardChoice, [], "выбор сделан — подсказка пропадает");
+});
+
+test("solo: значковая кампания со ссылкой на twitch.tv и игра во второй категории reward-кампании", async (t) => {
+  const miner = await boot(t, { soloTwitch: "111" });
+  const self = { id: "b", linked: false, selfLink: true, game: { id: "111" } };
+  const other = { id: "x", linked: false, selfLink: false, game: { id: "111" } };
+  const multi = { id: "m", kind: "reward", linked: true, game: { id: "999" }, games: [{ id: "999" }, { id: "111" }] };
+  assert.deepEqual(miner.soloCampaigns([self, other, multi], "111").map((item) => item.id), ["b", "m"]);
 });

@@ -410,6 +410,23 @@ test("kick solo: соло-сокет не перезапускается каж�
   assert.equal(sockets[0].closed, false);
 });
 
+test("kick solo: эфиров игры нет — параллельный аккаунт фармит кейс, сокет не пересоздаётся", async () => {
+  await reset();
+  // Категория 4040 пуста: ни одного эфира соло-игры.
+  store.local.settings.soloKick = "Apex";
+  store.local.kick = { enabled: true, user: "main", soloGame: "Apex", soloCategory: 4040 };
+  store.local.kickCases = { enabled: true, accounts: { "2": { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  const out = await kickSide.kickSideTick();
+  assert.equal(out["2"].phase, "watching");
+  assert.equal(out["2"].watching.case, true, "как у основного аккаунта: без эфиров игры минуты идут кейсу");
+  await kickSide.kickSideTick();
+  await kickSide.kickSideTick();
+  assert.equal(sockets.length, 1, "один сокет на три прохода");
+  assert.equal(sockets[0].closed, false);
+});
+
 // Заглушка GraphQL: инвентарь пуст, канал alice в эфире в игре g1.
 function twitchGql() {
   const inner = globalThis.fetch;

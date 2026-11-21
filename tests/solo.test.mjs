@@ -258,3 +258,24 @@ test("kick solo: без категории сообщение просит вы�
   assert.match(state.message, /soloNoCategory/);
   assert.match(state.message, /Rust/);
 });
+
+test("kick solo: эфиров игры нет — кейс-сокет держится, а не пересоздаётся каждый проход", async () => {
+  resetKick();
+  net["drops/campaigns"] = { data: [] };
+  store.local.settings = { soloKick: "Rust", soloKickCat: 13 };
+  store.local.kick = { enabled: true };
+  net["livestreams"] = (init, url) => (String(url).includes("category_id")
+    ? { data: { livestreams: [] } }
+    : { data: { livestreams: [{ id: "01a0-uuid", channel: { id: 5, slug: "streamer" } }] } });
+  net["api/v2/channels/"] = { id: 5, livestream: { id: 99, categories: [{ id: 1 }], viewer_count: 10 } };
+  store.local.kickCases = { enabled: true, accounts: { current: { items: [
+    { name: "Sunset Reward Case", status: "in_progress", progress: 40, threshold: 180 },
+  ] } } };
+  let state = await kick.kickTick();
+  assert.equal(state.watching.case, true);
+  state = await kick.kickTick();
+  state = await kick.kickTick();
+  assert.equal(state.watching.case, true);
+  assert.equal(sockets.length, 1, "один сокет на три прохода");
+  kick.stopWatch();
+});

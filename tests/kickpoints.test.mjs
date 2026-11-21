@@ -275,6 +275,25 @@ test("кейсы чужого аккаунта не отнимают ежедн�
   assert.deepEqual(claimed, ["c1"], "у этого кейсы падают — забираем награду сами");
 });
 
+test("награду, которую уже открыли кейсы, баллы не клеймят второй раз", async () => {
+  await reset();
+  await history.clearHistory();
+  challenges = [{ id: "c1", status: "claimable", name: "Daily Reward", window: { ends_at: "2026-10-11" } }];
+  // Запись кейсов «нездорова» (упал клейм другого кейса), но Daily Reward она уже открыла.
+  store.local.kickCases = {
+    enabled: true,
+    accounts: { a: { login: "me", checkedAt: Date.now(), error: "", claimError: "HTTP 400", opened: { [`c1|${Date.parse("2026-10-11")}`]: { at: 1 } } } },
+  };
+  const { createWatchers } = await import("../lib/kicksocket.js");
+  claimed.length = 0;
+  await points.pointsPass({
+    token: "1|abc", viewer: async () => "v", channels: [], dropLogin: "", previous: {},
+    prefix: "acc:", account: "me", own: false,
+  }, createWatchers());
+  assert.deepEqual(claimed, [], "второго POST нет");
+  assert.equal((await history.readHistory()).length, 0, "и второй записи в истории нет");
+});
+
 test("флаг выключен: баллы Kick не собираются и сокеты не открываются", async () => {
   await reset();
   await points.setKickPointsChannels([{ login: "alpha", id: "", name: "Alpha" }]);

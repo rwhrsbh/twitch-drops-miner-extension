@@ -142,10 +142,11 @@ async function cycle() {
     await runSide();
   }).catch(() => {});
   kickTick().then((state) => {
-    // После прохода майнера: уже известно, какой канал он смотрит ради дропа.
-    kickPointsTick();
     // Кейсы (Daily Reward, Sunset Reward Case и другие акции): минуты им считает тот же просмотр.
-    kickCasesTick().catch(() => {});
+    // Баллы — после кейсов: оба забирают одни и те же challenges, и параллельный старт
+    // открывал Daily Reward дважды (два POST и две записи в истории).
+    // После прохода майнера: уже известно, какой канал он смотрит ради дропа.
+    kickCasesTick().catch(() => {}).then(() => kickPointsTick());
     // Остальные аккаунты Kick фармят параллельно по своим токенам.
     kickSideTick().catch(() => {});
     return rotate("kick", state, hooks);
@@ -163,8 +164,8 @@ async function runSide() {
 function nudge() {
   runSide().catch(() => {});
   kickSideTick().catch(() => {});
-  kickPointsTick().catch(() => {});
-  kickCasesTick().catch(() => {});
+  // Кейсы первыми, баллы после них — по той же причине, что в cycle().
+  kickCasesTick().catch(() => {}).then(() => kickPointsTick()).catch(() => {});
 }
 
 chrome.tabs.onCreated.addListener((tab) => {

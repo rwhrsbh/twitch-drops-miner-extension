@@ -507,6 +507,7 @@ function render(state) {
 
   // Пока карточка сверху показывает дроп, строка статуса под вкладками только дублирует её.
   status.classList.toggle("hidden", state.phase !== "error");
+  paintRewardNote(state, on);
   const twitchMessage = !on
     ? L("kickIdle")
     : state.phase === "need-login" ? L("noLoginShort") : status.textContent;
@@ -615,6 +616,22 @@ function render(state) {
   // Кейсы живут в том же окне настроек: без этого их заголовок и строки оставались на прежнем языке.
   if (casesState) renderCases(casesState);
   renderExtras();
+}
+
+const INVENTORY = "https://www.twitch.tv/drops/inventory";
+
+// Сундук предлагает несколько наград, а автовыбор выключен: майнер его не откроет сам.
+// Говорим об этом прямо и даём ссылку на инвентарь, иначе награда молча ждёт до конца окна.
+function paintRewardNote(state, on) {
+  const note = $("reward-note");
+  if (!note) return;
+  const rows = on && Array.isArray(state?.rewardChoice) ? state.rewardChoice : [];
+  note.classList.toggle("hidden", !rows.length);
+  if (!rows.length) return;
+  const names = rows.map((row) => `${row.name || "?"}${row.game ? ` (${row.game})` : ""}`).join(", ");
+  const account = state.user?.login || activeLogin("twitch") || "Twitch";
+  $("reward-note-text").textContent = L("rewardChoiceNote", { account, names });
+  $("reward-note-open").textContent = L("rewardChoiceOpen");
 }
 
 // Эксклюзивный дроп без канала в сети и в нужной игре выбрать нельзя: минуты там не идут.
@@ -739,6 +756,10 @@ $("now").addEventListener("click", async () => {
 
 $("inventory-2").addEventListener("click", () => {
   chrome.tabs.create({ url: "https://www.twitch.tv/drops/inventory" });
+});
+
+$("reward-note-open").addEventListener("click", () => {
+  chrome.tabs.create({ url: INVENTORY });
 });
 
 $("extra").addEventListener("click", () => {
@@ -1781,7 +1802,10 @@ function paintCases() {
 // Кейсы есть у каждого аккаунта Kick, поэтому строка помнит, чей это аккаунт.
 function caseRow(row, account) {
   const ratio = row.threshold ? Math.min(100, Math.round((row.progress / row.threshold) * 100)) : 0;
-  const ready = row.status === "claimable" || (row.threshold > 0 && row.progress >= row.threshold && row.status !== "claimed");
+  // То же правило, что у фона (isClaimable в lib/kickcases.js): просроченный кейс Kick всё равно отклонит.
+  const expired = Boolean(row.endsAt) && row.endsAt <= Date.now();
+  const ready = !expired && !row.claimedAt && row.status !== "claimed"
+    && (row.status === "claimable" || (row.threshold > 0 && row.progress >= row.threshold));
   const letter = escapeHtml((row.name || "?").slice(0, 1).toUpperCase());
   const image = row.image && safeUrl(row.image);
   // У открытого кейса есть картинка награды, у остальных — только анимация кейса из ответа Kick.

@@ -45,7 +45,7 @@ const campaign = () => ({
 test("badge drop: the miner marks it itself, nothing is claimed over the network", async () => {
   const first = campaign();
   const out = await miner.claimReady(auth, [first], "en");
-  assert.deepEqual(out, { claimed: ["Jordan x Space Jam TCSD (Grand Theft Auto VI)"], failed: [] });
+  assert.deepEqual(out, { claimed: ["Jordan x Space Jam TCSD (Grand Theft Auto VI)"], failed: [], choice: [] });
   assert.equal(first.drops[0].claimed, true);
   assert.equal(calls, 0);
   const hist = await history.readHistory();
@@ -57,7 +57,7 @@ test("badge drop: the miner marks it itself, nothing is claimed over the network
   // иначе значок фармился бы заново каждый проход (проблема TwitchDropsMiner #916).
   const again = campaign();
   const second = await miner.claimReady(auth, [again], "en");
-  assert.deepEqual(second, { claimed: [], failed: [] });
+  assert.deepEqual(second, { claimed: [], failed: [], choice: [] });
   assert.equal(again.drops[0].claimed, true);
   assert.equal(calls, 0);
 });
@@ -70,7 +70,7 @@ test("normal tick: badge at 100% is claimed through claimQueueExtras", async () 
     required: 15, current: 15, claimed: false, badge: true, campaignId: "c2", image: "",
   };
   const out = await miner.claimQueueExtras(auth, [row], "en");
-  assert.deepEqual(out, { claimed: ["Haunter (Pokemon Evolutions)"], failed: [], changed: true });
+  assert.deepEqual(out, { claimed: ["Haunter (Pokemon Evolutions)"], failed: [], choice: [], changed: true });
   assert.equal(row.claimed, true);
   assert.equal(calls, 0);
 
@@ -78,7 +78,7 @@ test("normal tick: badge at 100% is claimed through claimQueueExtras", async () 
   // changed остаётся true, чтобы проход сохранил обновлённую строку очереди.
   const again = { ...row, claimed: false };
   const second = await miner.claimQueueExtras(auth, [again], "en");
-  assert.deepEqual(second, { claimed: [], failed: [], changed: true });
+  assert.deepEqual(second, { claimed: [], failed: [], choice: [], changed: true });
   assert.equal(again.claimed, true);
   assert.equal(calls, 0);
 });
@@ -112,4 +112,35 @@ test("stale saved rows (badge false) of a stuck reward group are still closed by
   assert.equal(stuck.claimed, true);
   assert.equal(justDone.claimed, false, "на минуту больше нормы, ещё не раньше");
   assert.equal(chest.claimed, false, "настоящий сундук идёт через claimReward, а не как значок");
+});
+
+test("repeatable chest marked as a stuck badge on day 1 is farmed again in the next window", async () => {
+  // GTA DVD Chest (POOL, 6 дней): Twitch не успел перевести группу в CLAIMABLE, минут 61.
+  // Раньше отметка значка (60 дней) по голому id закрывала группу на все оставшиеся дни.
+  const day = (windowEndsAt, current) => ({
+    id: "c9", name: "GTA", game: { id: "g9", name: "GTA VI" },
+    drops: [{
+      id: "chest", kind: "reward", name: "DVD Chest", benefits: ["DVD Chest"], image: "",
+      required: 60, current, claimed: false, badge: current >= 61, status: "IN_PROGRESS",
+      grantCount: 0, repeatableTimes: 6, windowEndsAt, campaignId: "c9",
+    }],
+  });
+  const first = day(1000, 61);
+  await miner.claimReady(auth, [first], "en");
+  assert.equal(first.drops[0].claimed, true);
+  const sameWindow = day(1000, 61);
+  const repeat = await miner.claimReady(auth, [sameWindow], "en");
+  assert.equal(sameWindow.drops[0].claimed, true, "в том же окне повторно не отмечается");
+  assert.deepEqual(repeat.claimed, [], "и в историю второй раз не пишется");
+  const nextWindow = day(2000, 0);
+  await miner.claimReady(auth, [nextWindow], "en");
+  assert.equal(nextWindow.drops[0].claimed, false, "новое окно — сундук снова фармится");
+  assert.equal(nextWindow.drops[0].current, 0);
+});
+
+test("one-time badge keeps the long memory by its plain id", () => {
+  assert.equal(miner.claimKey({ id: "d1", badge: true }), "d1");
+  assert.equal(miner.claimKey({ id: "r1", kind: "reward", repeatableTimes: 1 }), "r1");
+  assert.equal(miner.claimKey({ id: "r2", kind: "reward", repeatableTimes: 6, windowEndsAt: 5 }), "r2@5");
+  assert.equal(miner.claimKey({ id: "r3", kind: "reward", repeatableTimes: 6 }, Date.parse("2026-11-21T10:00:00Z")), "r3@d2026-11-21");
 });
