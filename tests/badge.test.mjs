@@ -291,3 +291,22 @@ test("saved queue rows of a chest claimed last pass do not erase its mark (not a
   await miner.claimQueueExtras(auth, [row], "en");
   assert.ok(key in store.local.claimedDrops, "очередь — не свежий ответ Twitch, отметка цела");
 });
+
+test("a drop Twitch granted by itself (Twitch item, no claim) is written to the history once", async () => {
+  const history = await import("../lib/history.js");
+  const before = (await history.readHistory()).filter((row) => row.name === "Joy").length;
+  const previous = [{ id: "joy", name: "Joy", game: "Old School RuneScape", required: 90, current: 89, claimed: false }];
+  const camp = () => ({
+    id: "cj", name: "OSRS", game: { id: "g16", name: "Old School RuneScape" },
+    drops: [{ id: "joy", name: "Joy", benefits: ["Joy"], image: "", required: 90, current: 90, claimed: true, campaignId: "cj" }],
+  });
+  assert.deepEqual(await miner.noteAutoGrants(auth, previous, [camp()]), ["joy"]);
+  assert.deepEqual(await miner.noteAutoGrants(auth, previous, [camp()]), [], "второй раз не пишется");
+  const rows = (await history.readHistory()).filter((row) => row.name === "Joy");
+  assert.equal(rows.length - before, 1);
+  assert.equal(rows[0].account, auth.login);
+  assert.equal(rows[0].game, "Old School RuneScape");
+  // Был забран ещё в прошлой очереди — не авто-выдача, не пишем.
+  assert.deepEqual(await miner.noteAutoGrants(auth, [{ ...previous[0], id: "x", claimed: true }],
+    [{ ...camp(), drops: [{ ...camp().drops[0], id: "x" }] }]), []);
+});

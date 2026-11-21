@@ -281,3 +281,33 @@ test("solo: кампания со ссылкой на twitch.tv, непривя�
   assert.ok(!state.queue.some((row) => row.id === "s1"), "основной её не фармит: не привязана");
   assert.ok(miner.readCatalog().campaigns.some((item) => item.id === "sl"), "но в каталоге для других аккаунтов она есть");
 });
+
+test("general drops: the first game has no streams — the miner moves on to the next game", async (t) => {
+  // Clover (PAYDAY 3) без эфиров стоял первым, и майнер вставал в no-channel, хотя у OSRS эфиры были.
+  const payday = { id: "333", name: "PAYDAY 3", slug: "payday-3" };
+  const osrs = { id: "444", name: "Old School RuneScape", slug: "old-school-runescape" };
+  calls.length = 0;
+  t.mock.module("../lib/client.js", { namedExports: {
+    ...clientMock(),
+    gameDirectory: async (_auth, slug) => {
+      calls.push({ what: "directory", slug });
+      return slug === "old-school-runescape" ? [{ login: "osrsguy", channelId: "9", broadcastId: "b9", viewers: 5, game: osrs }] : [];
+    },
+    getStream: async (_auth, login) => (login === "osrsguy"
+      ? { login, channelId: "9", broadcastId: "b9", viewers: 5, title: "", game: osrs } : null),
+  } });
+  t.mock.module("../lib/accounts.js", { namedExports: { noteCampaignDone: async () => {} } });
+  store.local = { settings: {}, state: { enabled: true } };
+  const miner = await import(`../lib/miner.js?general=${Date.now()}`);
+  const campaigns = [
+    campaign("cl", payday, [drop("clover", "Clover", 30, 0)]),
+    campaign("rs", osrs, [drop("bones", "Bones", 60, 0)]),
+  ];
+  const target = await miner.chooseTarget({ userId: "1", login: "me" }, campaigns, Date.now(), {});
+  assert.equal(target.drop?.id, "bones", "следующая игра с эфиром");
+  assert.equal(target.stream?.login, "osrsguy");
+  // Игру без эфиров следующий проход не опрашивает заново (5 минут).
+  calls.length = 0;
+  await miner.chooseTarget({ userId: "1", login: "me" }, campaigns, Date.now(), {});
+  assert.ok(!calls.some((call) => call.slug === "payday-3"), "PAYDAY 3 пропущен до истечения паузы");
+});
