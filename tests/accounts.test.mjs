@@ -892,3 +892,83 @@ test("an account whose drop did not get claimed is not promoted again for the sa
   assert.equal(home.promotable("2", { needsMain: false }, blocks), false);
   assert.equal(home.promotable("2", { needsMain: true, needIds: ["d1"] }, await home.readBlocks(Date.now() + 25 * 3600e3)), true, "блок живёт сутки");
 });
+
+// ---- Сценарий целиком: браузер на A, в расширение добавлены A, B, C ----
+
+test("сценарий: A в браузере, добавлены A, B, C — авто и выбранный аккаунт браузера", async () => {
+  const home = await import("../lib/home.js");
+  reset();
+  const h = hooks();
+  store.local.state = { phase: "watching", queue: [] };   // готовых незабранных дропов нет
+  const later = () => Date.now() + home.MIN_AWAY + 1000;    // прошло больше трёх минут
+  const where = async () => (await accounts.readAccounts()).twitch.active;
+
+  // Пользователь залогинен на сайте как A, расширение запоминает A.
+  login("tokA");
+  await accounts.syncCurrent("twitch", h);
+  // Добавляет B, потом C: каждый раз окно входа, после него браузер возвращается на A.
+  for (const next of ["tokB", "tokC"]) {
+    await accounts.startAdd("twitch", h);
+    login(next);
+    await accounts.finishAdd(h);
+  }
+  const data = await accounts.readAccounts();
+  assert.deepEqual(data.twitch.list.map((item) => item.login), ["alice", "bob", "carol"], "порядок добавления");
+  assert.equal(data.rotate.mode, "all");
+  assert.equal(token(), "tokA", "после добавления в браузере по-прежнему A");
+  assert.equal(await where(), "1");
+  assert.equal(data.twitch.home, "", "по умолчанию — авто");
+  assert.equal(await home.homeTarget("twitch"), "", "пока никто не уводил браузер, авто ничего не делает");
+
+  // ---- АВТО ----
+  // B нужен integrity для клейма: расширение ставит B в браузер.
+  await accounts.switchTo("twitch", "2", h, true);
+  assert.equal(token(), "tokB");
+  assert.equal(await home.homeTarget("twitch"), "", "первые 3 минуты браузер нужен для клейма B");
+  assert.equal(await home.homeTarget("twitch", later()), "1", "клейм прошёл — возвращаем A, на котором был браузер");
+  // Пока браузер на B, integrity понадобился и C: уходим на C, но помним, что вернуть надо A.
+  await accounts.switchTo("twitch", "3", h, true);
+  assert.equal(token(), "tokC");
+  assert.equal((await accounts.readAccounts()).twitch.back.from, "1");
+  assert.equal(await home.homeTarget("twitch", later()), "1");
+  await accounts.switchTo("twitch", "1", h, true);          // так делает returnHome в background.js
+  assert.equal(token(), "tokA", "вернулись на A");
+  assert.equal(await home.homeTarget("twitch", later()), "", "возвращать больше некого");
+
+  // Пользователь сам переключился на C (клик в попапе): это его выбор, назад не тянем.
+  await accounts.switchTo("twitch", "3", h);
+  assert.equal(await home.homeTarget("twitch", later()), "");
+  // Теперь integrity нужен B: после клейма авто вернёт C — там, где браузер был, а не самый старый A.
+  await accounts.switchTo("twitch", "2", h, true);
+  assert.equal(await home.homeTarget("twitch", later()), "3");
+  await accounts.switchTo("twitch", "3", h, true);
+  assert.equal(token(), "tokC");
+
+  // ---- ВЫБРАН КОНКРЕТНЫЙ: B ----
+  // Браузер на C. Выбрали B — браузер свободен, ставим B сразу, без трёхминутной паузы.
+  await accounts.setHome("twitch", "2");
+  assert.equal(await home.homeTarget("twitch"), "2");
+  // Но если в этот момент другой аккаунт ждёт integrity, B ждёт, пока браузер освободится.
+  store.local.side = { 1: { needsMain: true, needIds: ["d1"] } };
+  assert.equal(await home.homeTarget("twitch"), "", "занято: сначала клейм A");
+  delete store.local.side;
+  assert.equal(await home.homeTarget("twitch"), "2", "освободилось — ставим B");
+  await accounts.switchTo("twitch", "2", h, true);
+  assert.equal(token(), "tokB");
+  // A понадобился integrity: уходим на A, после клейма возвращаем выбранный B.
+  await accounts.switchTo("twitch", "1", h, true);
+  assert.equal(await home.homeTarget("twitch", later()), "2");
+  await accounts.switchTo("twitch", "2", h, true);
+  assert.equal(token(), "tokB");
+  // Пользователь сам переключился на C: сразу не тянем назад...
+  await accounts.switchTo("twitch", "3", h);
+  assert.equal(await home.homeTarget("twitch", later()), "");
+  // ...но после следующей смены ради клейма браузер возвращается к выбранному B, а не к C.
+  await accounts.switchTo("twitch", "1", h, true);
+  assert.equal(await home.homeTarget("twitch", later()), "2");
+
+  // Переключили обратно на «авто», пока браузер ещё на A ради клейма: авто вернёт туда, где браузер был
+  // до этой смены, — на C (туда пользователь переключился сам).
+  await accounts.setHome("twitch", "");
+  assert.equal(await home.homeTarget("twitch", later()), "3");
+});
