@@ -9,6 +9,7 @@ import {
   readAccounts,
   recover,
   removeAccount,
+  setHome,
   setRotation,
   setSelection,
   setWarned,
@@ -43,6 +44,7 @@ import {
 } from "./lib/kickpoints.js";
 import { kickCasesTick, openKickCase, readKickCases, setKickCasesEnabled } from "./lib/kickcases.js";
 import { rotate } from "./lib/rotation.js";
+import { homeTarget } from "./lib/home.js";
 import { loadHashes, refreshHashes } from "./lib/remote.js";
 import { readSettings, writeSettings } from "./lib/settings.js";
 
@@ -140,6 +142,8 @@ async function cycle() {
   tick("alarm").then(async (state) => {
     await rotate("twitch", state, hooks);
     await runSide();
+    // Аккаунт, ради которого уводили браузер, больше не нужен: возвращаем аккаунт браузера.
+    await returnHome("twitch");
   }).catch(() => {});
   kickTick().then((state) => {
     // Кейсы (Daily Reward, Sunset Reward Case и другие акции): минуты им считает тот же просмотр.
@@ -149,7 +153,7 @@ async function cycle() {
     kickCasesTick().catch(() => {}).then(() => kickPointsTick());
     // Остальные аккаунты Kick фармят параллельно по своим токенам.
     kickSideTick().catch(() => {});
-    return rotate("kick", state, hooks);
+    return rotate("kick", state, hooks).then(() => returnHome("kick"));
   }).catch(() => {});
 }
 
@@ -158,6 +162,15 @@ async function cycle() {
 async function runSide() {
   const side = await sideTick().catch(() => ({}));
   if (side.switchTo && !(await addPending())) await serial(() => switchTo("twitch", side.switchTo, hooks, true));
+}
+
+// Вернуть в браузер аккаунт, выбранный в попапе (или самый старый в «авто»), если он ушёл и браузер свободен.
+// inQueue — вызов уже внутри serial (обработчик попапа): вторая постановка в очередь ждала бы саму себя.
+async function returnHome(platform, inQueue = false) {
+  const id = await homeTarget(platform).catch(() => "");
+  if (!id) return;
+  const work = () => switchTo(platform, id, hooks, true);
+  await (inQueue ? work() : serial(work)).catch(() => {});
 }
 
 // Аккаунт убрали, сменили режим или выключили майнер: параллельные аккаунты узнают сразу, а не через минуту.
@@ -319,6 +332,15 @@ const writers = {
   setAccountsWarned: async () => publicAccounts(await setWarned()),
   removeAccount: async (message) => {
     const next = publicAccounts(await removeAccount(message.platform, message.id, hooks));
+    nudge();
+    return next;
+  },
+  // Аккаунт браузера: "" — авто (самый старый), иначе id. Выбранный ставится в браузер сразу, если свободно.
+  setBrowserAccount: async (message) => {
+    const platform = message.platform === "kick" ? "kick" : "twitch";
+    await setHome(platform, String(message.id || ""));
+    await returnHome(platform, true);
+    const next = publicAccounts(await readAccounts());
     nudge();
     return next;
   },

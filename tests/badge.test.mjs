@@ -142,5 +142,28 @@ test("one-time badge keeps the long memory by its plain id", () => {
   assert.equal(miner.claimKey({ id: "d1", badge: true }), "d1");
   assert.equal(miner.claimKey({ id: "r1", kind: "reward", repeatableTimes: 1 }), "r1");
   assert.equal(miner.claimKey({ id: "r2", kind: "reward", repeatableTimes: 6, windowEndsAt: 5 }), "r2@5");
-  assert.equal(miner.claimKey({ id: "r3", kind: "reward", repeatableTimes: 6 }, Date.parse("2026-11-21T10:00:00Z")), "r3@d2026-11-21");
+  const at = Date.parse("2026-11-21T10:00:00Z");
+  assert.equal(miner.claimKey({ id: "r3", kind: "reward", repeatableTimes: 6 }, at), `r3@h${Math.floor(at / (6 * 3600e3))}`);
+});
+
+test("repeatable chest without a window: a live mark does not hide a fresh window from Twitch", async () => {
+  // Окна Twitch не отдал: ключ — шестичасовой отрезок. Если внутри него Twitch уже показывает
+  // новый прогресс (минуты с нуля), отметка не должна выдавать группу за выданную.
+  const chest = (current) => ({
+    id: "c10", name: "GTA", game: { id: "g10", name: "GTA VI" },
+    drops: [{
+      id: "nowin", kind: "reward", name: "Chest", benefits: ["Chest"], image: "",
+      required: 60, current, claimed: false, badge: current >= 61, status: "IN_PROGRESS",
+      grantCount: 0, repeatableTimes: 6, windowEndsAt: 0, campaignId: "c10",
+    }],
+  });
+  await miner.claimReady(auth, [chest(61)], "en");
+  const fresh = chest(5);
+  await miner.claimReady(auth, [fresh], "en");
+  assert.equal(fresh.drops[0].claimed, false);
+  assert.equal(fresh.drops[0].current, 5);
+  const stuck = chest(61);
+  const again = await miner.claimReady(auth, [stuck], "en");
+  assert.equal(stuck.drops[0].claimed, true, "застрявшая на норме группа остаётся отмеченной");
+  assert.deepEqual(again.claimed, [], "без второй записи в истории");
 });

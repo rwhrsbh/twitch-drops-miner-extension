@@ -1466,6 +1466,37 @@ function renderAccounts() {
   $("rotate-limit").classList.toggle("hidden", rotate.mode !== "campaigns");
   if (document.activeElement !== $("rotate-limit")) $("rotate-limit").value = rotate.limit;
   $("rotate-hint").textContent = L({ all: "rotateHintAll", campaigns: "rotateHintCampaigns", done: "rotateHintDone" }[rotate.mode] || "rotateHintNever");
+  renderHome(rotate.mode);
+}
+
+// «Аккаунт в браузере»: какой аккаунт держать в куках сайта, пока остальные фармят параллельно.
+// Только для «Все сразу»: в режимах по очереди браузер и так на фармящем аккаунте.
+function renderHome(mode) {
+  const box = $("home-rows");
+  if (!box) return;
+  const rows = [];
+  for (const platform of ["twitch", "kick"]) {
+    const mine = side(platform);
+    if (mode !== "all" || mine.list.length < 2) continue;
+    const site = platform === "kick" ? "Kick" : "Twitch";
+    const oldest = mine.list.find((item) => !item.expired);
+    const options = [["", L("homeAuto", { login: accountName(oldest) || "—" }), false]]
+      .concat(mine.list.map((item) => [item.id, item.expired ? `${accountName(item)} · ${L("accountExpired")}` : accountName(item), item.expired]));
+    const target = mine.list.find((item) => item.id === mine.homeId);
+    const waiting = mine.back && target && mine.active !== target.id;
+    const hint = waiting ? L("homeWaiting", { login: accountName(target) }) : L(platform === "kick" ? "homeHintKick" : "homeHint", { site });
+    rows.push(`
+      <div class="row rotate home">
+        <div class="row-text"><strong>${escapeHtml(L("homeTitle", { site }))}</strong><small>${escapeHtml(hint)}</small></div>
+        <select data-home="${platform}" aria-label="${escapeHtml(L("homeTitle", { site }))}">
+          ${options.map(([value, label, off]) => `<option value="${escapeHtml(value)}"${off ? " disabled" : ""}${value === (mine.home || "") ? " selected" : ""}>${escapeHtml(label)}</option>`).join("")}
+        </select>
+      </div>`);
+  }
+  const html = rows.join("");
+  // Не перерисовываем список, пока он открыт: иначе выбор сбрасывался бы на каждом обновлении попапа.
+  if (box.contains(document.activeElement)) return;
+  setHtml(box, html);
 }
 
 // Платформа, для которой сейчас открыто окно входа.
@@ -1546,6 +1577,17 @@ $("accounts-list").addEventListener("click", async (event) => {
 $("rotate-mode").addEventListener("change", async (event) => {
   applyAccounts(await send({ type: "setRotation", patch: { mode: event.target.value } }));
 });
+$("home-rows").addEventListener("change", async (event) => {
+  const select = event.target.closest("select[data-home]");
+  if (!select) return;
+  select.disabled = true;
+  try {
+    applyAccounts(await send({ type: "setBrowserAccount", platform: select.dataset.home, id: select.value }));
+  } finally {
+    select.disabled = false;
+    select.blur();
+  }
+});
 $("rotate-limit").addEventListener("change", async (event) => {
   applyAccounts(await send({ type: "setRotation", patch: { limit: Number(event.target.value) } }));
 });
@@ -1584,13 +1626,21 @@ function renderExtras() {
 
 // Куки аккаунтов попапу не нужны: из хранилища берём только то, что показываем.
 function publicSide(raw) {
+  const list = (raw?.list || []).map((item) => ({
+    id: item.id, login: item.login, whitelist: item.whitelist || [], picked: item.picked || [], points: item.points || [], wishes: item.wishes || [],
+    expired: Boolean(item.expired),
+  }));
+  const home = raw?.home || "";
+  // То же правило, что homeId в lib/accounts.js: выбранный, если его сессия жива, иначе — самый старый.
+  const chosen = home ? list.find((item) => item.id === home) : null;
+  const homeId = home ? (chosen && !chosen.expired ? chosen.id : "") : list.find((item) => !item.expired)?.id || "";
   return {
     active: raw?.active || "",
     done: raw?.done || 0,
-    list: (raw?.list || []).map((item) => ({
-      id: item.id, login: item.login, whitelist: item.whitelist || [], picked: item.picked || [], points: item.points || [], wishes: item.wishes || [],
-      expired: Boolean(item.expired),
-    })),
+    home,
+    homeId,
+    back: raw?.back || null,
+    list,
   };
 }
 

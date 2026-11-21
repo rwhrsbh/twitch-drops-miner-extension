@@ -723,3 +723,107 @@ test("removing an account first remembers the session the user signed in to by h
   assert.equal(data.twitch.active, "3");
   assert.equal(token(), "tokC");
 });
+
+// ---- Аккаунт браузера: возврат после смены ради integrity и выбор в попапе ----
+
+async function three() {
+  const h = await two();
+  await accounts.startAdd("twitch", h);
+  login("tokC");
+  await accounts.finishAdd(h);
+  await accounts.setRotation({ mode: "all" });
+  h.calls.length = 0;
+  return h;
+}
+
+test("browser account, auto: after a switch for integrity the oldest account comes back when the claim is done", async () => {
+  const h = await three();
+  const home = await import("../lib/home.js");
+  const t0 = Date.now();
+  // Боб ждал integrity: расширение увело браузер к нему.
+  await accounts.switchTo("twitch", "2", h, true);
+  let data = await accounts.readAccounts();
+  assert.equal(data.twitch.active, "2");
+  assert.equal(data.twitch.back.reason, "auto");
+  assert.equal(accounts.homeId(data.twitch), "1", "авто — самый старый из добавленных");
+  // Первые минуты браузер нужен основному майнеру: вкладка, токен, клейм.
+  assert.equal(await home.homeTarget("twitch", t0 + 60 * 1000), "");
+  // Дроп всё ещё ждёт клейма — держим, пока не выйдет предел.
+  store.local.state = { phase: "claim-pending", queue: [] };
+  assert.equal(await home.homeTarget("twitch", t0 + home.MIN_AWAY + 1000), "");
+  assert.equal(await home.homeTarget("twitch", t0 + home.MAX_AWAY + 1000), "1", "дольше предела не держим");
+  // Клейм прошёл — возвращаем сразу после минимальной паузы.
+  store.local.state = { phase: "watching", queue: [{ id: "d", required: 10, current: 10, claimed: true }] };
+  assert.equal(await home.homeTarget("twitch", t0 + home.MIN_AWAY + 1000), "1");
+  // Другой аккаунт тоже ждёт integrity — сначала он.
+  store.local.side = { 3: { needsMain: true } };
+  assert.equal(await home.homeTarget("twitch", t0 + home.MIN_AWAY + 1000), "");
+  delete store.local.side;
+  await accounts.switchTo("twitch", "1", h, true);
+  data = await accounts.readAccounts();
+  assert.equal(token(), "tokA");
+  assert.equal(data.twitch.back, null, "вернулись — возвращать больше некого");
+  assert.equal(await home.homeTarget("twitch"), "");
+});
+
+test("browser account, chosen: picked in the popup goes to the browser at once; after an integrity switch it comes back", async () => {
+  const h = await three();
+  const home = await import("../lib/home.js");
+  store.local.state = { phase: "watching", queue: [] };
+  await accounts.setHome("twitch", "3");
+  let data = await accounts.readAccounts();
+  assert.equal(data.twitch.back.reason, "select");
+  assert.equal(await home.homeTarget("twitch"), "3", "выбор применяется без паузы");
+  // Пока другой аккаунт ждёт integrity, выбранный ждёт своей очереди.
+  store.local.side = { 2: { needsMain: true } };
+  assert.equal(await home.homeTarget("twitch"), "");
+  delete store.local.side;
+  await accounts.switchTo("twitch", "3", h, true);
+  assert.equal(token(), "tokC");
+  assert.equal((await accounts.readAccounts()).twitch.back, null);
+  // Расширение увело браузер к бобу ради integrity — потом возвращается к выбранной Кэрол, а не к самому старому.
+  await accounts.switchTo("twitch", "2", h, true);
+  assert.equal(await home.homeTarget("twitch", Date.now() + home.MIN_AWAY + 1000), "3");
+  // Ручная смена — выбор пользователя: назад не тянем.
+  await accounts.switchTo("twitch", "1", h);
+  data = await accounts.readAccounts();
+  assert.equal(data.twitch.back, null);
+  assert.equal(await home.homeTarget("twitch", Date.now() + home.MAX_AWAY + 1000), "");
+  // «Авто» само по себе ничего не переключает.
+  await accounts.setHome("twitch", "");
+  assert.equal((await accounts.readAccounts()).twitch.home, "");
+  assert.equal(await home.homeTarget("twitch"), "");
+});
+
+test("browser account: only in 'all' mode, never to a signed-out account, removal falls back to auto", async () => {
+  const h = await three();
+  const home = await import("../lib/home.js");
+  store.local.state = {};
+  await accounts.setHome("twitch", "3");
+  await accounts.setRotation({ mode: "campaigns" });
+  assert.equal(await home.homeTarget("twitch"), "", "по очереди: браузер и есть фармящий аккаунт");
+  await accounts.setRotation({ mode: "all" });
+  const data = await accounts.readAccounts();
+  data.twitch.list.find((item) => item.id === "3").expired = true;
+  await chrome.storage.local.set({ accounts: { ...(await chrome.storage.local.get("accounts")).accounts, twitch: { ...data.twitch, list: data.twitch.list.map(({ cookies, ...rest }) => rest) } } });
+  assert.equal(await home.homeTarget("twitch"), "", "выбранный разлогинен — другого без спроса не ставим");
+  await accounts.removeAccount("twitch", "3", h);
+  assert.equal((await accounts.readAccounts()).twitch.home, "");
+});
+
+test("browser account works the same for kick: a chosen account is put into the browser", async () => {
+  reset(); kickLogin("kA");
+  const h = hooks();
+  const home = await import("../lib/home.js");
+  await accounts.syncCurrent("kick", h);
+  await accounts.startAdd("kick", h);
+  kickLogin("kB");
+  await accounts.finishAdd(h);
+  assert.equal(kickToken(), "kA");
+  await accounts.setHome("kick", "12");
+  assert.equal(await home.homeTarget("kick"), "12");
+  await accounts.switchTo("kick", "12", h, true);
+  assert.equal(kickToken(), "kB");
+  assert.equal((await accounts.readAccounts()).kick.back, null);
+  assert.equal(accounts.publicAccounts(await accounts.readAccounts()).kick.homeId, "12");
+});
