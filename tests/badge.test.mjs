@@ -279,3 +279,15 @@ test("stuck repeatable group without a window: next 6-hour slice does not write 
     Date.now = realNow;
   }
 });
+
+test("saved queue rows of a chest claimed last pass do not erase its mark (not a reset at Twitch)", async () => {
+  const key = `${auth.userId}:queued15@h${Math.floor(Date.now() / (6 * 3600e3))}`;
+  store.local.claimedDrops = { ...(store.local.claimedDrops || {}), [key]: Date.now() };
+  // Строка очереди прошлого прохода: после нашего клейма current обнулён.
+  const row = {
+    id: "queued15", name: "Q", game: "G", gameId: "g15", campaignId: "c15", kind: "reward", status: "IN_PROGRESS",
+    required: 60, current: 0, claimed: false, repeatableTimes: 6, windowEndsAt: 0, image: "",
+  };
+  await miner.claimQueueExtras(auth, [row], "en");
+  assert.ok(key in store.local.claimedDrops, "очередь — не свежий ответ Twitch, отметка цела");
+});

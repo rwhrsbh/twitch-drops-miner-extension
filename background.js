@@ -8,6 +8,7 @@ import {
   publicAccounts,
   readAccounts,
   recover,
+  returnId,
   removeAccount,
   setHome,
   setRotation,
@@ -167,6 +168,7 @@ async function runSide() {
     const { side: farms = {} } = await chrome.storage.local.get("side");
     const need = farms[side.switchTo]?.needIds || [];
     let block = null;
+    let homeward = false;
     const result = await serial(() => switchTo("twitch", side.switchTo, hooks, true, {
       need,
       // Браузер уже был уведён к другому аккаунту ради клейма и уходит дальше по цепочке: тому, с кого
@@ -174,10 +176,17 @@ async function runSide() {
       // Считаем внутри очереди (state ещё уходящего аккаунта), а ставим только после удавшейся смены.
       check: async () => {
         block = await leavingBlock(side.switchTo);
+        // Integrity понадобился самому дому: это и есть возврат (back снимется), а returnHome уже не сработает.
+        const { accounts } = await chrome.storage.local.get("accounts");
+        const twitch = accounts?.twitch || {};
+        homeward = twitch.back?.reason === "auto" && returnId(twitch) === side.switchTo;
         return true;
       },
     }));
-    if (block && result?.twitch?.active === side.switchTo) await blockAccount(block.account, block.ids);
+    const moved = result?.twitch?.active === side.switchTo;
+    if (block && moved) await blockAccount(block.account, block.ids);
+    // Вернулись домой: вкладки, открытые под чужим аккаунтом за время отлучки, перезагружаем, как в returnHome.
+    if (homeward && moved) await reloadForeignTabs(side.switchTo).catch(() => {});
   }
 }
 

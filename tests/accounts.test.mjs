@@ -1090,3 +1090,42 @@ test("add window: a tab that loads while the cookies are still the added account
   assert.equal((await client.tabAccounts([11]))[11], client.UNKNOWN_TAB, "не записана как A");
   assert.equal((await chrome.storage.session.get("accountSwitching")).accountSwitching, undefined, "метка снята");
 });
+
+// ---- Пятое ревью ----
+
+test("tab record follows the auth-token cookie, not the active account that has not caught up yet", async () => {
+  const h = await three();
+  const client = await import("../lib/client.js");
+  // Пользователь сам вошёл на сайте под Кэрол; сверка ещё не прошла — active всё ещё A.
+  login("tokC");
+  assert.equal((await accounts.readAccounts()).twitch.active, "1");
+  await client.noteTabLoad(21, "https://www.twitch.tv/x");
+  assert.equal((await client.tabAccounts([21]))[21], "3", "вкладка записана под Кэрол по куке");
+  // Токен, которого нет среди сохранённых (новый вход), — неизвестно.
+  login("tokZ");
+  await client.noteTabLoad(22, "https://www.twitch.tv/y");
+  assert.equal((await client.tabAccounts([22]))[22], client.UNKNOWN_TAB);
+  login("tokA");
+});
+
+test("going back to 'All at once' with a chosen browser account puts it into the browser again", async () => {
+  const h = await three();
+  const home = await import("../lib/home.js");
+  store.local.state = {};
+  await accounts.setHome("twitch", "3");
+  await accounts.setRotation({ mode: "campaigns" });
+  assert.equal((await accounts.readAccounts()).twitch.back, null);
+  await accounts.setRotation({ mode: "all" });
+  assert.equal((await accounts.readAccounts()).twitch.back?.reason, "select");
+  assert.equal(await home.homeTarget("twitch"), "3");
+});
+
+test("removing an account leaves no endless pending return", async () => {
+  const h = await three();
+  await accounts.switchTo("twitch", "2", h, true);                  // увели с A на B
+  assert.equal((await accounts.readAccounts()).twitch.back.from, "1");
+  await accounts.removeAccount("twitch", "2", h);                   // удалили B: браузер на A
+  const data = await accounts.readAccounts();
+  assert.equal(data.twitch.active, "1");
+  assert.equal(data.twitch.back, null, "возвращать некуда — back снят");
+});
