@@ -17,7 +17,7 @@ import {
   switchTo,
   syncCurrent,
 } from "./lib/accounts.js";
-import { forgetTab, noteTabLoad, readAuth, resetSession, searchChannels } from "./lib/client.js";
+import { forgetTab, noteTabLoad, readAuth, reloadForeignTabs, replaceTab, resetSession, searchChannels } from "./lib/client.js";
 import { clearHistory, readHistory } from "./lib/history.js";
 import { installKickRules, kickTick, readKick, resetKickAccount, setKickEnabled, twitchPickedNames, watchKickDrop } from "./lib/kick.js";
 import {
@@ -44,7 +44,7 @@ import {
 } from "./lib/kickpoints.js";
 import { kickCasesTick, openKickCase, readKickCases, setKickCasesEnabled } from "./lib/kickcases.js";
 import { rotate } from "./lib/rotation.js";
-import { blockAccount, homeTarget, readyIds } from "./lib/home.js";
+import { blockAccount, homeTarget, returnBlock } from "./lib/home.js";
 import { loadHashes, refreshHashes } from "./lib/remote.js";
 import { readSettings, writeSettings } from "./lib/settings.js";
 
@@ -161,24 +161,47 @@ async function cycle() {
 // не стало), тот становится активным: как часто, решает lib/side.js.
 async function runSide() {
   const side = await sideTick().catch(() => ({}));
-  if (side.switchTo && !(await addPending())) await serial(() => switchTo("twitch", side.switchTo, hooks, true));
+  if (side.switchTo && !(await addPending())) {
+    // Ради каких дропов уводим браузер: при возврате по ним ставится блок (lib/home.js), даже если
+    // майнер под этим аккаунтом не успел построить очередь.
+    const { side: farms = {} } = await chrome.storage.local.get("side");
+    const need = farms[side.switchTo]?.needIds || [];
+    await serial(() => switchTo("twitch", side.switchTo, hooks, true, { need }));
+  }
 }
 
 // Вернуть в браузер аккаунт, выбранный в попапе (или самый старый в «авто»), если он ушёл и браузер свободен.
 // inQueue — вызов уже внутри serial (обработчик попапа): вторая постановка в очередь ждала бы саму себя.
 async function returnHome(platform, inQueue = false) {
-  const id = await homeTarget(platform).catch(() => "");
-  if (!id) return;
-  const work = async () => {
-    // Уходим, а готовые дропы аккаунта так и не забрались: ради них же браузер больше не уводим.
-    if (platform === "twitch") {
-      const { state, accounts } = await chrome.storage.local.get(["state", "accounts"]);
-      const leaving = accounts?.twitch?.active || "";
-      if (leaving && leaving !== id) await blockAccount(leaving, readyIds(state));
-    }
-    return switchTo(platform, id, hooks, true);
-  };
+  if (!(await homeTarget(platform).catch(() => ""))) return;
+  let id = "";
+  let reason = "";
+  const work = () => switchTo(platform, "", hooks, true, {
+    // Цель перепроверяется уже внутри очереди: пока ждали, браузер могли увести к другому аккаунту
+    // (тогда возврат сейчас оборвал бы его клейм без паузы) или пользователь сам сменил аккаунт.
+    check: async () => {
+      id = await homeTarget(platform).catch(() => "");
+      if (!id) return false;
+      const { accounts } = await chrome.storage.local.get("accounts");
+      const side = accounts?.[platform] || {};
+      reason = side.back?.reason || "";
+      // Уводили ради integrity, а готовые дропы так и не забрались: ради них же браузер больше не уводим.
+      // Блок — только после смены ради клейма и только по дропам, ради которых уводили, плюс те, что
+      // всё ещё ждут клейма в очереди. При возврате к выбранному в попапе аккаунту блока нет.
+      if (platform === "twitch") {
+        const { state } = await chrome.storage.local.get("state");
+        const block = returnBlock(side, state, id);
+        if (block) await blockAccount(block.account, block.ids);
+      }
+      return true;
+    },
+    target: () => id,
+    // Аккаунт, выбранный в попапе, пользователь ждёт увидеть во вкладках: их перезагружаем.
+    reload: () => reason === "select",
+  });
   await (inQueue ? work() : serial(work)).catch(() => {});
+  // Вернулись: вкладки, открытые под чужим аккаунтом за время отлучки, перезагружаем.
+  if (platform === "twitch" && id && reason === "auto") await reloadForeignTabs(id).catch(() => {});
 }
 
 // Аккаунт убрали, сменили режим или выключили майнер: параллельные аккаунты узнают сразу, а не через минуту.
@@ -200,6 +223,9 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
   forgetTab(tabId).catch(() => {});
+});
+chrome.tabs.onReplaced.addListener((addedId, removedId) => {
+  replaceTab(addedId, removedId).catch(() => {});
 });
 
 chrome.runtime.onInstalled.addListener(() => {

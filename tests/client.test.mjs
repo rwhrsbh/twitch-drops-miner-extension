@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 
 const store = { local: {}, session: {} };
 const area = (bag) => ({
-  get: async (key) => (key in bag() ? { [key]: structuredClone(bag()[key]) } : {}),
+  get: async (key) => Object.fromEntries((Array.isArray(key) ? key : [key])
+    .filter((name) => name in bag()).map((name) => [name, structuredClone(bag()[name])])),
   set: async (value) => Object.assign(bag(), structuredClone(value)),
   remove: async (key) => { delete bag()[key]; },
 });
@@ -347,4 +348,19 @@ test("side account: chest progress comes from its own request, and stays unknown
   } finally {
     globalThis.fetch = saved;
   }
+});
+
+test("tab accounts: simultaneous loads keep every tab; a load during a cookie swap is unknown", async () => {
+  const { noteTabLoad, tabAccounts, forgetTab, UNKNOWN_TAB } = client;
+  store.local.accounts = { twitch: { active: "1" } };
+  await Promise.all([1, 2, 3, 4, 5].map((id) => noteTabLoad(id, "https://www.twitch.tv/x")));
+  assert.deepEqual(Object.keys(await tabAccounts([1, 2, 3, 4, 5])).length, 5, "ни одна запись не потеряна");
+  store.session.accountSwitching = Date.now();
+  await noteTabLoad(6, "https://www.twitch.tv/y");
+  delete store.session.accountSwitching;
+  assert.equal((await tabAccounts([6]))[6], UNKNOWN_TAB);
+  await noteTabLoad(7, "https://kick.com/z");
+  assert.deepEqual(await tabAccounts([7]), {}, "не Twitch — не учитываем");
+  await Promise.all([forgetTab(1), forgetTab(2), noteTabLoad(8, "https://twitch.tv/")]);
+  assert.deepEqual(Object.keys(await tabAccounts([1, 2, 8])), ["8"]);
 });

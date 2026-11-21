@@ -162,10 +162,16 @@ test("repeatable chest without a window: a live mark does not hide a fresh windo
   await miner.claimReady(auth, [fresh], "en");
   assert.equal(fresh.drops[0].claimed, false);
   assert.equal(fresh.drops[0].current, 5);
+  // Twitch показал сброс (5 минут), потом снова норму: это новая выдача — отмечается и пишется в историю.
+  const next = chest(61);
+  const again = await miner.claimReady(auth, [next], "en");
+  assert.equal(next.drops[0].claimed, true);
+  assert.deepEqual(again.claimed, ["Chest (GTA VI)"], "новая выдача после сброса — в историю");
+  // А та же выдача, застрявшая на норме, второй раз не пишется.
   const stuck = chest(61);
-  const again = await miner.claimReady(auth, [stuck], "en");
+  const third = await miner.claimReady(auth, [stuck], "en");
   assert.equal(stuck.drops[0].claimed, true, "застрявшая на норме группа остаётся отмеченной");
-  assert.deepEqual(again.claimed, [], "без второй записи в истории");
+  assert.deepEqual(third.claimed, [], "без второй записи в истории");
 });
 
 test("main miner claims every ready drop of a promoted account, the old stuck one and the new one", async () => {

@@ -794,7 +794,16 @@ $("inventory-2").addEventListener("click", () => {
 $("reward-note-open").addEventListener("click", async (event) => {
   const account = event.currentTarget.dataset.account || "";
   // Награду выбирают в инвентаре того аккаунта, чей это сундук: сначала ставим его в браузер.
-  if (account) applyAccounts(await send({ type: "switchAccount", platform: "twitch", id: account }));
+  // Это ручная смена: пока человек выбирает, браузер назад не уводим.
+  if (account) {
+    const next = await send({ type: "switchAccount", platform: "twitch", id: account });
+    // Смена не удалась — инвентарь открылся бы под чужим аккаунтом.
+    if (!next || next.twitch?.active !== account) {
+      if (next) applyAccounts(next);
+      return;
+    }
+    applyAccounts(next);
+  }
   chrome.tabs.create({ url: INVENTORY });
 });
 

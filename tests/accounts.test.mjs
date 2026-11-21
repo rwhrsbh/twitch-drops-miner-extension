@@ -972,3 +972,65 @@ test("сценарий: A в браузере, добавлены A, B, C — а
   await accounts.setHome("twitch", "");
   assert.equal(await home.homeTarget("twitch", later()), "3");
 });
+
+// ---- Находки второго ревью: блок, перезагрузка при выборе, from, проверка в очереди ----
+
+test("block on return: only after a switch for a claim, by the drops it was taken for, with window keys", async () => {
+  const home = await import("../lib/home.js");
+  const back = (reason, need) => ({ active: "2", back: { reason, at: 1, from: "1", need } });
+  // Майнер под B не успел построить очередь (пусто), но ради чего уводили — известно.
+  assert.deepEqual(home.returnBlock(back("auto", { 2: ["d1"] }), { queue: [] }, "1"), { account: "2", ids: ["d1"] });
+  // Дроп в очереди уже забран — его не блокируем.
+  assert.equal(home.returnBlock(back("auto", { 2: ["d1"] }), { queue: [{ id: "d1", claimed: true }] }, "1"), null);
+  // Возврат к выбранному в попапе — без блока: у аккаунта мог только что созреть дроп.
+  assert.equal(home.returnBlock(back("select"), { queue: [{ id: "d1", required: 1, current: 1, claimed: false }] }, "1"), null);
+  // Повторяемый сундук блокируется ключом окна: завтрашняя выдача блок не наследует.
+  const chest = { id: "g1", kind: "reward", status: "CLAIMABLE", repeatableTimes: 6, windowEndsAt: 500, required: 60, current: 60, claimed: false };
+  assert.deepEqual(home.readyIds({ queue: [chest] }), ["g1@500"]);
+  const blocks = { 2: { at: Date.now(), ids: ["g1@500"] } };
+  assert.equal(home.promotable("2", { needsMain: true, needIds: ["g1@500"] }, blocks), false);
+  assert.equal(home.promotable("2", { needsMain: true, needIds: ["g1@900"] }, blocks), true, "новое окно — новая выдача");
+  // Пауза держит needsMain, а ждать уже нечего — не поднимаем.
+  assert.equal(home.promotable("2", { needsMain: true, needIds: [] }, {}), false);
+  assert.equal(home.promotable("2", { needsMain: true }, {}), true, "состояние старой версии без needIds");
+});
+
+test("switch for a claim remembers which drops it was for; the in-queue check can cancel a return", async () => {
+  const h = await three();
+  await accounts.switchTo("twitch", "2", h, true, { need: ["d1", "d2"] });
+  let data = await accounts.readAccounts();
+  assert.deepEqual(data.twitch.back.need, { 2: ["d1", "d2"] });
+  // Цель перепроверяется внутри очереди: передумали — смены нет.
+  await accounts.switchTo("twitch", "", h, true, { check: async () => false, target: () => "1" });
+  assert.equal(token(), "tokB");
+  await accounts.switchTo("twitch", "", h, true, { check: async () => true, target: () => "1" });
+  assert.equal(token(), "tokA");
+  data = await accounts.readAccounts();
+  assert.equal(data.twitch.back, null);
+});
+
+test("an account chosen in the popup reloads the tabs; a return after a claim does not", async () => {
+  const h = await three();
+  reloaded.length = 0;
+  await accounts.switchTo("twitch", "3", h, true, { reload: () => true });
+  assert.ok(reloaded.length > 0, "выбор в попапе — вкладки перезагружаются");
+  reloaded.length = 0;
+  await accounts.switchTo("twitch", "2", h, true);
+  assert.deepEqual(reloaded, []);
+});
+
+test("picking an account while the browser is away and then Auto again keeps 'return where it was'", async () => {
+  const h = await three();
+  await accounts.switchTo("twitch", "2", h, true);                 // увели с A ради клейма
+  await accounts.setHome("twitch", "3");                            // выбрали C, браузер ещё занят
+  assert.equal((await accounts.readAccounts()).twitch.back.from, "1");
+  await accounts.setHome("twitch", "");                             // передумали: авто
+  const data = await accounts.readAccounts();
+  assert.equal(data.twitch.back.reason, "auto");
+  assert.equal(accounts.returnId(data.twitch), "1", "возвращаем A, а не остаёмся на B");
+  // Выбранный аккаунт разлогинен — возвращаем туда, где браузер был.
+  await accounts.setHome("twitch", "3");
+  const dead = await accounts.readAccounts();
+  dead.twitch.list.find((item) => item.id === "3").expired = true;
+  assert.equal(accounts.returnId(dead.twitch), "1");
+});
