@@ -294,6 +294,27 @@ test("награду, которую уже открыли кейсы, балл�
   assert.equal((await history.readHistory()).length, 0, "и второй записи в истории нет");
 });
 
+test("аккаунт Kick без ника: запись кейсов находится по id, награда не клеймится второй раз", async () => {
+  await reset();
+  challenges = [{ id: "c1", status: "claimable", name: "Daily Reward", window: { ends_at: "2026-10-11" } }];
+  // Kick не отдал ник: у записи кейсов login пустой, ключ — id аккаунта.
+  store.local.kickCases = { enabled: true, accounts: { k7: { login: "", checkedAt: Date.now(), error: "", claimError: "" } } };
+  const { createWatchers } = await import("../lib/kicksocket.js");
+  claimed.length = 0;
+  await points.pointsPass({
+    token: "1|abc", viewer: async () => "v", channels: [], dropLogin: "", previous: {},
+    prefix: "acc:", account: "k7", accountId: "k7", own: false,
+  }, createWatchers());
+  assert.deepEqual(claimed, [], "кейсы этого аккаунта работают — не дублируем");
+});
+
+test("аккаунт без ника называется своим id, как в чипах", async () => {
+  const { accountLabel } = await import("../lib/accounts.js");
+  assert.equal(accountLabel({ id: "k7", login: "" }), "k7");
+  assert.equal(accountLabel({ id: "k7", login: "kbob" }), "kbob");
+  assert.equal(accountLabel(null), "");
+});
+
 test("флаг выключен: баллы Kick не собираются и сокеты не открываются", async () => {
   await reset();
   await points.setKickPointsChannels([{ login: "alpha", id: "", name: "Alpha" }]);

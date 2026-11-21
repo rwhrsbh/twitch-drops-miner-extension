@@ -1267,7 +1267,8 @@ function accountChips(platform) {
 
 // Подпись над списком игр: что он значит и чей он.
 function paintGamesHint() {
-  const login = targetAccount(gamesSide)?.login || "";
+  // Ник, а без него id аккаунта — как в чипах.
+  const login = accountName(targetAccount(gamesSide));
   const who = `${gamesSide === "twitch" ? "Twitch" : "Kick"} ${login}`.trim();
   $("games-hint").textContent = `${L(settings.autoAll ? "gamesHintPriority" : "gamesHintOnly")} ${L("gamesHintWho", { who })}`;
 }
@@ -1928,6 +1929,9 @@ function caseRow(row, account) {
 // У аккаунта браузера может не быть имени: показываем «В браузере», а не «current».
 function accountLabel(id, entry) {
   if (entry?.login) return entry.login;
+  // Запись кейсов без ника: имя из списка аккаунтов (ник или id, как в чипах).
+  const saved = side("kick").list.find((item) => item.id === id);
+  if (saved) return accountName(saved);
   return id === "current" ? L("browserAs") : id;
 }
 
