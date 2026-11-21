@@ -169,8 +169,12 @@ async function runSide() {
     const need = farms[side.switchTo]?.needIds || [];
     let block = null;
     let homeward = false;
+    let chosen = false;
     const result = await serial(() => switchTo("twitch", side.switchTo, hooks, true, {
       need,
+      // Integrity понадобился аккаунту, выбранному в попапе, пока возврат к нему ждал: пользователь ждёт
+      // увидеть его во вкладках — перезагружаем, как при обычном возврате к выбранному.
+      reload: () => chosen,
       // Браузер уже был уведён к другому аккаунту ради клейма и уходит дальше по цепочке: тому, с кого
       // уходим, ставим тот же блок, что при возврате домой, — иначе его подняли бы снова ради тех же дропов.
       // Считаем внутри очереди (state ещё уходящего аккаунта), а ставим только после удавшейся смены.
@@ -180,6 +184,7 @@ async function runSide() {
         const { accounts } = await chrome.storage.local.get("accounts");
         const twitch = accounts?.twitch || {};
         homeward = twitch.back?.reason === "auto" && returnId(twitch) === side.switchTo;
+        chosen = twitch.back?.reason === "select" && returnId(twitch) === side.switchTo;
         return true;
       },
     }));

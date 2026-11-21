@@ -1703,7 +1703,8 @@ function publicSide(raw) {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   // Окно входа открылось или закрылось: обновляем подсказку и список аккаунтов.
-  if (area === "session" && changes.accountAdd) {
+  // Журнал окна входа лежит в local (lib/accounts.js): раньше здесь слушалась session, и ветка не срабатывала.
+  if (area === "local" && changes.accountAdd) {
     addingNow = changes.accountAdd.newValue?.platform || "";
     renderAccounts();
     send({ type: "getAccounts" }).then(applyAccounts);

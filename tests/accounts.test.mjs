@@ -1129,3 +1129,70 @@ test("removing an account leaves no endless pending return", async () => {
   assert.equal(data.twitch.active, "1");
   assert.equal(data.twitch.back, null, "возвращать некуда — back снят");
 });
+
+// ---- Шестое ревью ----
+
+test("add finish fails after the new account is saved: the previous session comes back at once, the new account stays", async () => {
+  reset(); login("tokA");
+  const h = hooks();
+  await accounts.syncCurrent("twitch", h);
+  await accounts.startAdd("twitch", h);
+  login("tokB");
+  let fail = true;
+  const failing = { ...h, before: () => { if (fail) { fail = false; throw new Error("boom"); } } };
+  await assert.rejects(accounts.finishAdd(failing));
+  const data = await accounts.readAccounts();
+  assert.deepEqual(data.twitch.list.map((item) => item.login), ["alice", "bob"], "новый аккаунт сохранён");
+  assert.equal(token(), "tokA", "прежняя сессия возвращена сразу");
+  assert.equal(data.twitch.active, "1");
+  assert.equal((await chrome.storage.local.get("accountAdd")).accountAdd, undefined, "журнал окна снят — автосмены не стоят");
+});
+
+test("add with no live previous account: the window journal is gone before the new account is written", async () => {
+  // Повторный вход в истёкший B под C: откат через recover подменил бы куки на мёртвые B.
+  reset(); login("tokB");
+  const h = hooks();
+  await accounts.syncCurrent("twitch", h);
+  // Сессия B умерла на сервере: сверка помечает её истёкшей.
+  const saved = users.tokB;
+  delete users.tokB;
+  await accounts.syncCurrent("twitch", h);
+  assert.equal((await accounts.readAccounts()).twitch.list[0].expired, true);
+  await accounts.startAdd("twitch", h);
+  login("tokC");
+  const realSet = chrome.storage.local.set;
+  let journalAtWrite = "unset";
+  chrome.storage.local.set = async (value) => {
+    if (value.accounts && journalAtWrite === "unset" && value.accounts.twitch?.active === "3") {
+      journalAtWrite = Boolean((await chrome.storage.local.get("accountAdd")).accountAdd);
+    }
+    return realSet(value);
+  };
+  try {
+    await accounts.finishAdd(h);
+  } finally {
+    chrome.storage.local.set = realSet;
+    users.tokB = saved;
+  }
+  assert.equal(journalAtWrite, false, "журнала нет к моменту записи — recover не откатит к мёртвому B");
+  assert.equal((await accounts.readAccounts()).twitch.active, "3");
+});
+
+test("first run with no saved accounts: tabs get no record and stay usable for integrity", async () => {
+  reset(); login("tokA");
+  const client = await import("../lib/client.js");
+  await client.noteTabLoad(31, "https://www.twitch.tv/x");
+  assert.deepEqual(await client.tabAccounts([31]), {}, "не «неизвестно» навсегда");
+});
+
+test("removing the chosen browser account while its return waits does not pull the browser to the oldest", async () => {
+  const h = await three();
+  const home = await import("../lib/home.js");
+  store.local.state = {};
+  await accounts.switchTo("twitch", "3", h);                         // браузер на C (вручную)
+  await accounts.setHome("twitch", "2");                             // выбрали B, возврат ждёт
+  await accounts.removeAccount("twitch", "2", h);                    // удалили B
+  const data = await accounts.readAccounts();
+  assert.equal(data.twitch.back, null);
+  assert.equal(await home.homeTarget("twitch"), "", "на самый старый A без спроса не уводим");
+});
