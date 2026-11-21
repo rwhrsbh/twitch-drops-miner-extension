@@ -1687,14 +1687,15 @@ function publicSide(raw) {
   // То же правило, что homeId в lib/accounts.js: выбранный, если его сессия жива, иначе — самый старый.
   const chosen = home ? list.find((item) => item.id === home) : null;
   const homeId = home ? (chosen && !chosen.expired ? chosen.id : "") : list.find((item) => !item.expired)?.id || "";
-  // Как returnId в lib/accounts.js: в «авто» возвращаем тот, с которого браузер увели.
-  const from = !home && raw?.back?.from ? list.find((item) => item.id === raw.back.from && !item.expired) : null;
+  // Как returnId в lib/accounts.js: в «авто» возвращаем тот, с которого браузер увели; выбранный
+  // разлогинен — тоже туда.
+  const from = raw?.back?.from ? list.find((item) => item.id === raw.back.from && !item.expired) : null;
   return {
     active: raw?.active || "",
     done: raw?.done || 0,
     home,
     homeId,
-    returnId: from ? from.id : homeId,
+    returnId: home ? homeId || from?.id || "" : from ? from.id : homeId,
     back: raw?.back || null,
     list,
   };

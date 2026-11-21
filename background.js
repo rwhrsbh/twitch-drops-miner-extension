@@ -166,7 +166,17 @@ async function runSide() {
     // майнер под этим аккаунтом не успел построить очередь.
     const { side: farms = {} } = await chrome.storage.local.get("side");
     const need = farms[side.switchTo]?.needIds || [];
-    await serial(() => switchTo("twitch", side.switchTo, hooks, true, { need }));
+    await serial(() => switchTo("twitch", side.switchTo, hooks, true, {
+      need,
+      // Браузер уже был уведён к другому аккаунту ради клейма и уходит дальше по цепочке: тому, с кого
+      // уходим, ставим тот же блок, что при возврате домой, — иначе его подняли бы снова ради тех же дропов.
+      check: async () => {
+        const { accounts, state } = await chrome.storage.local.get(["accounts", "state"]);
+        const block = returnBlock(accounts?.twitch || {}, state, side.switchTo);
+        if (block) await blockAccount(block.account, block.ids);
+        return true;
+      },
+    }));
   }
 }
 
@@ -199,9 +209,12 @@ async function returnHome(platform, inQueue = false) {
     // Аккаунт, выбранный в попапе, пользователь ждёт увидеть во вкладках: их перезагружаем.
     reload: () => reason === "select",
   });
-  await (inQueue ? work() : serial(work)).catch(() => {});
-  // Вернулись: вкладки, открытые под чужим аккаунтом за время отлучки, перезагружаем.
-  if (platform === "twitch" && id && reason === "auto") await reloadForeignTabs(id).catch(() => {});
+  const after = await (inQueue ? work() : serial(work)).catch(() => null);
+  // Вернулись: вкладки, открытые под чужим аккаунтом за время отлучки, перезагружаем. Только если смена
+  // состоялась: иначе (сессия дома умерла, браузер остался где был) «чужими» оказались бы свои вкладки.
+  if (platform === "twitch" && id && reason === "auto" && after?.twitch?.active === id) {
+    await reloadForeignTabs(id).catch(() => {});
+  }
 }
 
 // Аккаунт убрали, сменили режим или выключили майнер: параллельные аккаунты узнают сразу, а не через минуту.

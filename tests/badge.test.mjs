@@ -157,22 +157,50 @@ test("repeatable chest without a window: a live mark does not hide a fresh windo
       grantCount: 0, repeatableTimes: 6, windowEndsAt: 0, campaignId: "c10",
     }],
   });
-  await miner.claimReady(auth, [chest(61)], "en");
-  const fresh = chest(5);
-  await miner.claimReady(auth, [fresh], "en");
-  assert.equal(fresh.drops[0].claimed, false);
-  assert.equal(fresh.drops[0].current, 5);
-  // Twitch показал сброс (5 минут), потом снова норму: это новая выдача — отмечается и пишется в историю.
-  const next = chest(61);
-  const again = await miner.claimReady(auth, [next], "en");
-  assert.equal(next.drops[0].claimed, true);
-  assert.deepEqual(again.claimed, ["Chest (GTA VI)"], "новая выдача после сброса — в историю");
-  // А та же выдача, застрявшая на норме, второй раз не пишется.
-  const stuck = chest(61);
-  const third = await miner.claimReady(auth, [stuck], "en");
-  assert.equal(stuck.drops[0].claimed, true, "застрявшая на норме группа остаётся отмеченной");
-  assert.deepEqual(third.claimed, [], "без второй записи в истории");
+  const realNow = Date.now;
+  const slice = 6 * 3600e3;
+  const start = Math.floor(realNow() / slice) * slice + 1000;
+  try {
+    Date.now = () => start;
+    await miner.claimReady(auth, [chest(61)], "en");
+    // Через 20 минут Twitch показывает сброс (новый день): минуты с нуля.
+    Date.now = () => start + 20 * 60e3;
+    const fresh = chest(5);
+    await miner.claimReady(auth, [fresh], "en");
+    assert.equal(fresh.drops[0].claimed, false);
+    assert.equal(fresh.drops[0].current, 5);
+    // Потом снова норма — это новая выдача: отмечается и пишется в историю.
+    Date.now = () => start + 90 * 60e3;
+    const next = chest(61);
+    const again = await miner.claimReady(auth, [next], "en");
+    assert.equal(next.drops[0].claimed, true);
+    assert.deepEqual(again.claimed, ["Chest (GTA VI)"], "новая выдача после сброса — в историю");
+    // А та же выдача, застрявшая на норме, второй раз не пишется.
+    const stuck = chest(61);
+    const third = await miner.claimReady(auth, [stuck], "en");
+    assert.equal(stuck.drops[0].claimed, true, "застрявшая на норме группа остаётся отмеченной");
+    assert.deepEqual(third.claimed, [], "без второй записи в истории");
+  } finally {
+    Date.now = realNow;
+  }
 });
+
+test("a chest just claimed in this pass keeps its mark when claimReady runs again in the same pass", async () => {
+  // После своего клейма повторяемый сундук в памяти обнулён (current 0). Второй вызов в том же
+  // проходе не должен принять это за сброс у Twitch и стереть отметку.
+  const ready = () => ({
+    id: "c13", name: "GTA", game: { id: "g13", name: "GTA VI" },
+    drops: [{
+      id: "own13", kind: "reward", name: "Own", benefits: ["Own"], image: "", required: 60, current: 0, claimed: false,
+      badge: false, status: "IN_PROGRESS", grantCount: 1, repeatableTimes: 6, windowEndsAt: 0, campaignId: "c13",
+    }],
+  });
+  const key = `${auth.userId}:${miner.claimKey(ready().drops[0])}`;
+  store.local.claimedDrops = { ...(store.local.claimedDrops || {}), [key]: Date.now() };
+  await miner.claimReady(auth, [ready()], "en");
+  assert.ok(key in (store.local.claimedDrops || {}), "свежая отметка своего клейма не стёрта");
+});
+
 
 test("main miner claims every ready drop of a promoted account, the old stuck one and the new one", async () => {
   const before = calls;

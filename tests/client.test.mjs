@@ -9,7 +9,11 @@ const area = (bag) => ({
   set: async (value) => Object.assign(bag(), structuredClone(value)),
   remove: async (key) => { delete bag()[key]; },
 });
-globalThis.chrome = { storage: { local: area(() => store.local), session: area(() => store.session) } };
+globalThis.chrome = {
+  storage: { local: area(() => store.local), session: area(() => store.session) },
+  tabs: { get: async (id) => (closedTabs.has(id) ? Promise.reject(new Error("No tab")) : { id }) },
+};
+const closedTabs = new Set();
 
 // Twitch находит пользователя в DropCampaignDetails только по тому полю, что указано в accepts.
 let accepts = "id";
@@ -363,4 +367,13 @@ test("tab accounts: simultaneous loads keep every tab; a load during a cookie sw
   assert.deepEqual(await tabAccounts([7]), {}, "не Twitch — не учитываем");
   await Promise.all([forgetTab(1), forgetTab(2), noteTabLoad(8, "https://twitch.tv/")]);
   assert.deepEqual(Object.keys(await tabAccounts([1, 2, 8])), ["8"]);
+});
+
+test("tab accounts: a tab closed while its record was written does not leave the record behind", async () => {
+  const { noteTabLoad, tabAccounts } = client;
+  store.local.accounts = { twitch: { active: "1" } };
+  closedTabs.add(41);
+  await noteTabLoad(41, "https://www.twitch.tv/x");
+  assert.deepEqual(await tabAccounts([41]), {});
+  closedTabs.delete(41);
 });
