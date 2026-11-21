@@ -188,18 +188,55 @@ test("repeatable chest without a window: a live mark does not hide a fresh windo
 test("a chest just claimed in this pass keeps its mark when claimReady runs again in the same pass", async () => {
   // После своего клейма повторяемый сундук в памяти обнулён (current 0). Второй вызов в том же
   // проходе не должен принять это за сброс у Twitch и стереть отметку.
-  const ready = () => ({
-    id: "c13", name: "GTA", game: { id: "g13", name: "GTA VI" },
+  const saved = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const body = JSON.parse(init.body || "{}");
+    if (/DropsRewardOptions/.test(body.query || "")) {
+      return new Response(JSON.stringify({ data: { dropsRewardOptions: { id: "set", options: [{ id: "o1", isAvailable: true }] } } }));
+    }
+    if (/SelectDropsRewardOption/.test(body.query || "")) {
+      return new Response(JSON.stringify({ data: { selectDropsRewardOption: { code: { rewardID: "r" }, error: null } } }));
+    }
+    return new Response('{"data":{}}');
+  };
+  try {
+    const camp = {
+      id: "c13", name: "GTA", game: { id: "g13", name: "GTA VI" },
+      drops: [{
+        id: "own13", kind: "reward", name: "Own", benefits: ["Own"], image: "", required: 2, current: 2, claimed: false,
+        badge: false, status: "CLAIMABLE", grantCount: 0, repeatableTimes: 6, windowEndsAt: 0, campaignId: "c13",
+      }],
+    };
+    const first = await miner.claimReady(auth, [camp], "en");
+    assert.deepEqual(first.claimed, ["Own (GTA VI)"]);
+    assert.equal(camp.drops[0].current, 0, "в памяти сундук обнулён");
+    const key = `${auth.userId}:${miner.claimKey(camp.drops[0])}`;
+    // Второй вызов в том же проходе на тех же объектах.
+    await miner.claimReady(auth, [camp], "en");
+    assert.ok(key in (store.local.claimedDrops || {}), "отметка своего клейма не стёрта");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("a short repeatable chest is not kept closed by an old mark once Twitch shows the reset", async () => {
+  // Отметка от прошлого прохода (не этого): Twitch показывает сброс — стираем сразу, без ожидания.
+  const key = `${auth.userId}:short14@h${Math.floor(Date.now() / (6 * 3600e3))}`;
+  store.local.claimedDrops = { ...(store.local.claimedDrops || {}), [key]: Date.now() };
+  const camp = (current) => ({
+    id: "c14", name: "G", game: { id: "g14", name: "G" },
     drops: [{
-      id: "own13", kind: "reward", name: "Own", benefits: ["Own"], image: "", required: 60, current: 0, claimed: false,
-      badge: false, status: "IN_PROGRESS", grantCount: 1, repeatableTimes: 6, windowEndsAt: 0, campaignId: "c13",
+      id: "short14", kind: "reward", name: "Short", benefits: ["Short"], image: "", required: 2, current, claimed: false,
+      badge: false, status: "IN_PROGRESS", grantCount: 1, repeatableTimes: 6, windowEndsAt: 0, campaignId: "c14",
     }],
   });
-  const key = `${auth.userId}:${miner.claimKey(ready().drops[0])}`;
-  store.local.claimedDrops = { ...(store.local.claimedDrops || {}), [key]: Date.now() };
-  await miner.claimReady(auth, [ready()], "en");
-  assert.ok(key in (store.local.claimedDrops || {}), "свежая отметка своего клейма не стёрта");
+  await miner.claimReady(auth, [camp(1)], "en");
+  assert.ok(!(key in store.local.claimedDrops), "сброс у Twitch — отметка прошлой выдачи стёрта");
+  const ready = camp(2);
+  await miner.claimReady(auth, [ready], "en");
+  assert.equal(ready.drops[0].claimed, false, "набранный снова сундук не считается забранным");
 });
+
 
 
 test("main miner claims every ready drop of a promoted account, the old stuck one and the new one", async () => {

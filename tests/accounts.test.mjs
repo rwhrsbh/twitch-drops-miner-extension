@@ -1050,3 +1050,43 @@ test("picking an account while the browser is away and then Auto again keeps 're
   dead.twitch.list.find((item) => item.id === "3").expired = true;
   assert.equal(accounts.returnId(dead.twitch), "1");
 });
+
+test("add window: first account or re-login into an expired one reloads every tab (they were signed out)", async () => {
+  // Первый аккаунт: браузер разлогинен, вкладки тоже.
+  reset();
+  const h = hooks();
+  const client = await import("../lib/client.js");
+  await client.noteTabLoad(9, "https://www.twitch.tv/a");
+  await accounts.startAdd("twitch", h);
+  login("tokA");
+  await accounts.finishAdd(h);
+  assert.equal((await accounts.readAccounts()).twitch.active, "1");
+  assert.deepEqual(reloaded.sort(), [10, 9].sort(), "все вкладки: и открытые до окна");
+  // Сессия A умерла, пользователь входит в A заново через окно.
+  const data = await accounts.readAccounts();
+  data.twitch.list[0].expired = true;
+  const stored = (await chrome.storage.local.get("accounts")).accounts;
+  stored.twitch.list[0].expired = true;
+  await chrome.storage.local.set({ accounts: stored });
+  reloaded.length = 0;
+  await accounts.startAdd("twitch", h);
+  login("tokA");
+  await accounts.finishAdd(h);
+  assert.deepEqual(reloaded.sort(), [10, 9].sort(), "повторный вход в истёкший — тоже все");
+});
+
+test("add window: a tab that loads while the cookies are still the added account's is recorded as unknown", async () => {
+  reset(); login("tokA");
+  const h = hooks();
+  const client = await import("../lib/client.js");
+  await accounts.syncCurrent("twitch", h);
+  await accounts.startAdd("twitch", h);
+  login("tokB");
+  // Пока finishAdd ждёт куки и подменяет их обратно, пользователь открыл вкладку 11.
+  const finishing = accounts.finishAdd(h);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await client.noteTabLoad(11, "https://www.twitch.tv/c");
+  await finishing;
+  assert.equal((await client.tabAccounts([11]))[11], client.UNKNOWN_TAB, "не записана как A");
+  assert.equal((await chrome.storage.session.get("accountSwitching")).accountSwitching, undefined, "метка снята");
+});

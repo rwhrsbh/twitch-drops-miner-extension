@@ -166,18 +166,29 @@ async function runSide() {
     // майнер под этим аккаунтом не успел построить очередь.
     const { side: farms = {} } = await chrome.storage.local.get("side");
     const need = farms[side.switchTo]?.needIds || [];
-    await serial(() => switchTo("twitch", side.switchTo, hooks, true, {
+    let block = null;
+    const result = await serial(() => switchTo("twitch", side.switchTo, hooks, true, {
       need,
       // Браузер уже был уведён к другому аккаунту ради клейма и уходит дальше по цепочке: тому, с кого
       // уходим, ставим тот же блок, что при возврате домой, — иначе его подняли бы снова ради тех же дропов.
+      // Считаем внутри очереди (state ещё уходящего аккаунта), а ставим только после удавшейся смены.
       check: async () => {
-        const { accounts, state } = await chrome.storage.local.get(["accounts", "state"]);
-        const block = returnBlock(accounts?.twitch || {}, state, side.switchTo);
-        if (block) await blockAccount(block.account, block.ids);
+        block = await leavingBlock(side.switchTo);
         return true;
       },
     }));
+    if (block && result?.twitch?.active === side.switchTo) await blockAccount(block.account, block.ids);
   }
+}
+
+// Блок аккаунту, с которого уходим после смены ради клейма (lib/home.js returnBlock). Аккаунт с умершей
+// сессией не блокируем: его «готовые» дропы — из мёртвой сессии, после повторного входа он нужен целиком.
+async function leavingBlock(target) {
+  const { accounts, state } = await chrome.storage.local.get(["accounts", "state"]);
+  const side = accounts?.twitch || {};
+  const leaving = (side.list || []).find((item) => item.id === side.active);
+  if (!leaving || leaving.expired) return null;
+  return returnBlock(side, state, target);
 }
 
 // Вернуть в браузер аккаунт, выбранный в попапе (или самый старый в «авто»), если он ушёл и браузер свободен.
@@ -186,6 +197,7 @@ async function returnHome(platform, inQueue = false) {
   if (!(await homeTarget(platform).catch(() => ""))) return;
   let id = "";
   let reason = "";
+  let block = null;
   const work = () => switchTo(platform, "", hooks, true, {
     // Цель перепроверяется уже внутри очереди: пока ждали, браузер могли увести к другому аккаунту
     // (тогда возврат сейчас оборвал бы его клейм без паузы) или пользователь сам сменил аккаунт.
@@ -198,11 +210,7 @@ async function returnHome(platform, inQueue = false) {
       // Уводили ради integrity, а готовые дропы так и не забрались: ради них же браузер больше не уводим.
       // Блок — только после смены ради клейма и только по дропам, ради которых уводили, плюс те, что
       // всё ещё ждут клейма в очереди. При возврате к выбранному в попапе аккаунту блока нет.
-      if (platform === "twitch") {
-        const { state } = await chrome.storage.local.get("state");
-        const block = returnBlock(side, state, id);
-        if (block) await blockAccount(block.account, block.ids);
-      }
+      if (platform === "twitch") block = await leavingBlock(id);
       return true;
     },
     target: () => id,
@@ -210,6 +218,8 @@ async function returnHome(platform, inQueue = false) {
     reload: () => reason === "select",
   });
   const after = await (inQueue ? work() : serial(work)).catch(() => null);
+  // Блок — только если браузер действительно ушёл: при откате (сессия дома умерла) аккаунт остался активным.
+  if (block && after?.[platform]?.active === id) await blockAccount(block.account, block.ids).catch(() => {});
   // Вернулись: вкладки, открытые под чужим аккаунтом за время отлучки, перезагружаем. Только если смена
   // состоялась: иначе (сессия дома умерла, браузер остался где был) «чужими» оказались бы свои вкладки.
   if (platform === "twitch" && id && reason === "auto" && after?.twitch?.active === id) {
